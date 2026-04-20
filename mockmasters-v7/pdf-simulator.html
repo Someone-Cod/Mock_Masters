@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0">
+    <link rel="stylesheet" href="/src/css/global.css">
+    <title>MockMasters — Exam Simulator</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- TOP BAR — no submit button, just "End Test Early" hidden as subtle option -->
+<div class="topbar">
+  <div style="display:flex;flex-direction:column;flex:1;min-width:0">
+    <div class="exam-title" id="exam-title">Loading exam...</div>
+    <div style="font-size:10px;color:var(--muted)" id="exam-meta"></div>
+  </div>
+  <div class="part-badge" id="part-badge"></div>
+  <div class="exam-badge" id="exam-badge">—</div>
+  <div class="timer-box">
+    <div class="timer-lbl">Time Left</div>
+    <div class="timer" id="timer">--:--:--</div>
+  </div>
+  <button class="tbtn" onclick="toggleFullscreen()" title="Toggle fullscreen">⛶</button>
+  <!-- End Test Early is subtle — not a big red button -->
+  <button class="tbtn tbtn-warn" id="end-early-btn" onclick="confirmEndEarly()" style="display:none" title="End test before time expires">End Early</button>
+</div>
+
+<!-- PART TRANSITION SCREEN (MHT-CET only) -->
+<div class="part-transition" id="part-transition">
+  <div class="pt-icon">✅</div>
+  <div class="pt-title" id="pt-title">Part 1 Complete</div>
+  <div class="pt-sub" id="pt-sub">Physics & Chemistry section has ended. Your answers are saved. Part 2 will begin in:</div>
+  <div class="pt-countdown" id="pt-countdown">10</div>
+  <div class="pt-stats" id="pt-stats"></div>
+  <button class="pt-btn" onclick="startPart2()">Start Part 2 Now →</button>
+  <div style="font-size:11px;color:var(--muted);margin-top:8px">Note: You cannot go back to Part 1 after this point.</div>
+</div>
+
+<div class="main" id="exam-main">
+
+  <!-- PDF PANEL -->
+  <div class="pdf-panel">
+    <div class="pdf-bar">
+      <button onclick="prevPage()">◀ Prev</button>
+      <span class="pg-info">Page <span id="pg-num">—</span> / <span id="pg-total">—</span></span>
+      <button onclick="nextPage()">Next ▶</button>
+      <button onclick="zoomOut()">−</button>
+      <span style="font-size:11px;color:var(--muted);min-width:32px;text-align:center" id="zoom-lbl">130%</span>
+      <button onclick="zoomIn()">+</button>
+      <button onclick="fitPage()">Fit</button>
+      <span id="hide-notice" style="font-size:10px;color:var(--amber);margin-left:4px"></span>
+    </div>
+    <div class="pdf-wrap">
+      <div class="pdf-msg" id="pdf-msg"><div class="spinner"></div><div style="margin-top:8px">Loading exam paper...</div></div>
+      <canvas id="pdf-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel">
+    <div class="panel-tabs">
+      <div class="ptab active" onclick="switchTab('palette',this)">Palette</div>
+      <div class="ptab" onclick="switchTab('answer',this)">Answer</div>
+      <div class="ptab" onclick="switchTab('stats',this)">Stats</div>
+    </div>
+
+    <!-- PALETTE -->
+    <div class="tab-body active" id="tab-palette">
+      <div id="palette-wrap"></div>
+      <div class="legend">
+        <div class="leg"><div class="ldot" style="background:#1E3A5F;border:1px solid #2563EB"></div>Answered</div>
+        <div class="leg"><div class="ldot" style="background:#451A03;border:1px solid #D97706"></div>For Review</div>
+        <div class="leg"><div class="ldot" style="background:#2D1B69;border:1px solid #7C3AED"></div>Ans + Review</div>
+        <div class="leg"><div class="ldot" style="background:var(--surface2);border:1px solid var(--border)"></div>Not Visited</div>
+      </div>
+    </div>
+
+    <!-- ANSWER -->
+    <div class="tab-body" id="tab-answer">
+      <div class="ans-box">
+        <div class="q-lbl">Current Question</div>
+        <div class="q-bignum" id="q-bignum">Q1</div>
+        <div class="q-subj" id="q-subj-lbl">—</div>
+        <div class="q-desc" id="q-desc"></div>
+
+        <!-- MCQ Single -->
+        <div id="input-mcq">
+          <div class="opts-2x2">
+            <button class="opt-btn" id="opt-A" onclick="selectMCQ('A')">A</button>
+            <button class="opt-btn" id="opt-B" onclick="selectMCQ('B')">B</button>
+            <button class="opt-btn" id="opt-C" onclick="selectMCQ('C')">C</button>
+            <button class="opt-btn" id="opt-D" onclick="selectMCQ('D')">D</button>
+          </div>
+        </div>
+
+        <!-- MCQ Multi correct -->
+        <div id="input-multi" style="display:none">
+          <div class="multi-hint">Select ALL correct options</div>
+          <div class="opts-2x2">
+            <button class="opt-btn" id="mopt-A" onclick="toggleMulti('A')">A</button>
+            <button class="opt-btn" id="mopt-B" onclick="toggleMulti('B')">B</button>
+            <button class="opt-btn" id="mopt-C" onclick="toggleMulti('C')">C</button>
+            <button class="opt-btn" id="mopt-D" onclick="toggleMulti('D')">D</button>
+          </div>
+        </div>
+
+        <!-- Numerical -->
+        <div id="input-numerical" style="display:none">
+          <input type="number" class="num-input" id="num-val" placeholder="Enter your answer" oninput="saveNumerical(this.value)">
+          <div class="num-hint">Type your numerical answer · No negative marking</div>
+        </div>
+
+        <!-- Integer keypad -->
+        <div id="input-integer" style="display:none">
+          <input type="text" class="num-input" id="int-val" placeholder="0" readonly style="font-size:24px;margin-bottom:8px">
+          <div class="keypad">
+            <button class="kbtn" onclick="kpad('1')">1</button><button class="kbtn" onclick="kpad('2')">2</button>
+            <button class="kbtn" onclick="kpad('3')">3</button><button class="kbtn" onclick="kpad('4')">4</button>
+            <button class="kbtn" onclick="kpad('5')">5</button><button class="kbtn" onclick="kpad('6')">6</button>
+            <button class="kbtn" onclick="kpad('7')">7</button><button class="kbtn" onclick="kpad('8')">8</button>
+            <button class="kbtn" onclick="kpad('9')">9</button><button class="kbtn" onclick="kpad('0')">0</button>
+            <button class="kbtn kdel" onclick="kpad('DEL')">⌫</button><button class="kbtn kclear" onclick="kpad('CLR')">CLR</button>
+          </div>
+          <div class="num-hint">Non-negative integer only · No negative marking</div>
+        </div>
+
+        <button class="mark-btn" id="mark-btn" onclick="toggleReview()">⚑ Mark for Review</button>
+        <button class="clear-btn" onclick="clearAnswer()">✕ Clear Response</button>
+        <div class="nav-row">
+          <button class="nav-btn nb-prev" onclick="prevQ()">← Prev</button>
+          <button class="nav-btn nb-next" onclick="nextQ()">Next →</button>
+        </div>
+      </div>
+      <!-- Jump to question -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:9px;padding:10px">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Jump to Question</div>
+        <input type="number" id="jump-inp" placeholder="Question number" min="1"
+          style="width:100%;padding:8px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;font-family:'Plus Jakarta Sans',sans-serif;outline:none"
+          onkeydown="if(event.key==='Enter')jumpToQ(+this.value)">
+      </div>
+    </div>
+
+    <!-- STATS -->
+    <div class="tab-body" id="tab-stats">
+      <div class="stat-card">
+        <h4>Live Progress</h4>
+        <div class="stat-row"><span>Answered</span><span class="sv" id="s-ans" style="color:var(--green)">0</span></div>
+        <div class="stat-row"><span>For Review</span><span class="sv" id="s-rev" style="color:var(--amber)">0</span></div>
+        <div class="stat-row"><span>Not Attempted</span><span class="sv" id="s-skip" style="color:var(--muted)">0</span></div>
+        <div class="stat-row"><span>Total</span><span class="sv" id="s-tot">0</span></div>
+      </div>
+      <div class="stat-card">
+        <h4>Section Progress</h4>
+        <div id="sect-prog"></div>
+      </div>
+      <div class="stat-card">
+        <h4>Exam Pattern</h4>
+        <div id="pattern-info" style="font-size:11px;color:var(--muted);line-height:1.9"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- RESULT -->
+<div id="result-screen">
+  <div class="res-inner">
+    <div style="text-align:center;margin-bottom:20px">
+      <h1 style="font-size:26px;font-weight:800;letter-spacing:-0.5px">Exam Complete!</h1>
+      <p style="color:var(--muted);margin-top:4px" id="res-sub"></p>
+    </div>
+    <div id="res-body"></div>
+    <div class="res-actions">
+      <button class="rbtn rbtn-pri" onclick="showReview()">Review Answers</button>
+      <button class="rbtn rbtn-sec" onclick="goBack()">← Back to MockMasters</button>
+    </div>
+  </div>
+</div>
+
+<!-- REVIEW -->
+<div id="review-overlay">
+  <div class="rev-inner">
+    <div class="rev-hdr">
+      <h2 style="font-size:16px;font-weight:700">Answer Review</h2>
+      <button class="close-x" onclick="document.getElementById('review-overlay').style.display='none'">×</button>
+    </div>
+    <div id="rev-list"></div>
+  </div>
+</div>
+  <script type="module" src="/src/js/simulator.js"></script>
+</body>
+</html>

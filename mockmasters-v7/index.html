@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0">
+<meta name="theme-color" content="#2563EB">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="MockMasters">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<title>MockMasters</title>
+    <link rel="stylesheet" href="/src/css/global.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- FULL PAGE LOADER -->
+<div class="full-loader" id="full-loader">
+  <div class="fl-logo">MockMasters</div>
+  <div class="fl-spinner"></div>
+  <div class="fl-msg" id="fl-msg">Signing you in...</div>
+</div>
+
+<!-- AUTH PAGE -->
+<div id="auth-page">
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-logo">MockMasters</div>
+      <div class="auth-tagline">India's smartest exam prep platform for JEE & MHT-CET</div>
+
+      <!-- Guest notice -->
+      <div class="guest-notice" id="guest-notice" style="display:none">
+        You're using a guest account. Your progress won't be saved after you close the browser. Create a free account to save your results!
+      </div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" onclick="switchAuthTab('login',this)">Sign In</button>
+        <button class="auth-tab" onclick="switchAuthTab('signup',this)">Sign Up</button>
+      </div>
+
+      <div id="auth-msg" class="auth-msg" style="display:none"></div>
+
+      <!-- LOGIN -->
+      <div id="login-form">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" class="form-input" id="login-email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')handleLogin()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" class="form-input" id="login-password" placeholder="Your password" onkeydown="if(event.key==='Enter')handleLogin()">
+        </div>
+        <button class="auth-btn" id="login-btn" onclick="handleLogin()">
+          <div class="btn-spinner"></div>
+          <span class="btn-text">Sign In</span>
+        </button>
+        <div class="divider">or</div>
+        <button class="guest-btn" onclick="handleGuestLogin()">
+          👤 Continue as Guest
+        </button>
+        <p style="font-size:11px;color:var(--muted);text-align:center;margin-top:10px">Guest accounts are temporary — data is not saved</p>
+      </div>
+
+      <!-- SIGNUP -->
+      <div id="signup-form" style="display:none">
+        <div class="form-group">
+          <label class="form-label">Full Name</label>
+          <input type="text" class="form-input" id="signup-name" placeholder="Arjun Sharma">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" class="form-input" id="signup-email" placeholder="you@example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" class="form-input" id="signup-password" placeholder="Minimum 8 characters">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Target Exam</label>
+          <select class="form-select" id="signup-exam">
+            <option value="JEE">JEE Main / Advanced</option>
+            <option value="MHT-CET">MHT-CET</option>
+            <option value="NEET">NEET</option>
+            <option value="Generic">Other</option>
+          </select>
+        </div>
+        <button class="auth-btn" id="signup-btn" onclick="handleSignup()">
+          <div class="btn-spinner"></div>
+          <span class="btn-text">Create Account</span>
+        </button>
+        <div class="divider">or</div>
+        <button class="guest-btn" onclick="handleGuestLogin()">👤 Continue as Guest</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NAV -->
+<nav class="nav" id="main-nav" style="box-sizing:border-box" style="display:none">
+  <div class="logo">MockMasters</div>
+  <div class="nav-links">
+    <button class="nav-link active" onclick="showPage('dashboard',this)">Dashboard</button>
+    <button class="nav-link" onclick="showPage('practice',this)">Practice</button>
+    <button class="nav-link" onclick="showPage('mocktest',this)">Mock&nbsp;Test</button>
+    <button class="nav-link" onclick="showPage('papers',this)">Papers</button>
+    <button class="nav-link" onclick="showPage('analytics',this)">Analytics</button>
+  </div>
+  <div class="nav-right">
+    <button class="theme-btn" onclick="toggleTheme()" id="theme-btn">🌙</button>
+    <span class="guest-badge" id="guest-badge" style="display:none">GUEST</span>
+    <div class="user-avatar" id="user-avatar">?</div>
+    <button class="logout-btn" onclick="handleLogout()" id="logout-btn">Sign out</button>
+  </div>
+</nav>
+
+
+<!-- APP -->
+<div id="app" style="display:none;width:100%;box-sizing:border-box">
+
+  <!-- DASHBOARD -->
+  <div id="dashboard" class="page active">
+    <div class="page-header">
+      <h1 id="dash-greeting">Welcome 👋</h1>
+      <p id="dash-subtitle">Loading your stats...</p>
+    </div>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">Tests Taken</div><div class="stat-value" id="stat-tests" style="color:var(--accent)">—</div><div class="stat-sub" id="stat-tests-sub">—</div></div>
+      <div class="stat-card"><div class="stat-label">Avg Accuracy</div><div class="stat-value" id="stat-acc" style="color:var(--green)">—</div><div class="stat-sub">Across all tests</div></div>
+      <div class="stat-card"><div class="stat-label">Questions Done</div><div class="stat-value" id="stat-qs" style="color:var(--amber)">—</div><div class="stat-sub">Total attempted</div></div>
+      <div class="stat-card"><div class="stat-label">Last Active</div><div class="stat-value" id="stat-last" style="color:var(--accent2);font-size:16px">—</div><div class="stat-sub">Keep going!</div></div>
+    </div>
+    <div class="dash-grid">
+      <div>
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-title">Subject Performance <span style="font-size:11px;color:var(--muted);font-weight:400">from your real attempts</span></div>
+          <div id="subject-perf-bars"><div class="page-loading"><div class="spinner"></div>Loading...</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">Quick Start</div>
+          <div id="exam-cards-container"><div class="page-loading"><div class="spinner"></div></div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Recent Tests</div>
+        <div id="recent-tests"><div class="page-loading"><div class="spinner"></div>Loading...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRACTICE -->
+  <div id="practice" class="page">
+    <div class="prac-shell">
+      <div class="prac-sidebar">
+        <div class="filter-section">
+          <h4>Exam</h4>
+          <button class="filter-btn active" onclick="setFilter('exam','all',this)">All Exams</button>
+          <button class="filter-btn" onclick="setFilter('exam','JEE',this)">JEE (PCM)</button>
+          <button class="filter-btn" onclick="setFilter('exam','MHT-CET',this)">MHT-CET (PCM+Bio)</button>
+          <button class="filter-btn" onclick="setFilter('exam','Generic',this)">Generic</button>
+        </div>
+        <div class="filter-section">
+          <h4>Subject</h4>
+          <button class="filter-btn" onclick="setFilter('subj','all',this)">All Subjects</button>
+          <button class="filter-btn" onclick="setFilter('subj','Physics',this)">Physics</button>
+          <button class="filter-btn" onclick="setFilter('subj','Chemistry',this)">Chemistry</button>
+          <button class="filter-btn" onclick="setFilter('subj','Mathematics',this)">Mathematics</button>
+          <button class="filter-btn" onclick="setFilter('subj','Biology',this)">Biology <small style="color:var(--muted)">(MHT only)</small></button>
+        </div>
+        <div class="filter-section">
+          <h4>Difficulty</h4>
+          <button class="filter-btn" onclick="setFilter('diff','all',this)">All Levels</button>
+          <button class="filter-btn" onclick="setFilter('diff','easy',this)">Easy</button>
+          <button class="filter-btn" onclick="setFilter('diff','medium',this)">Medium</button>
+          <button class="filter-btn" onclick="setFilter('diff','hard',this)">Hard</button>
+        </div>
+      </div>
+      <div class="prac-main">
+        <div class="prac-header">
+          <h2>Question Bank</h2>
+          <span style="color:var(--muted);font-size:13px" id="q-count">Loading...</span>
+        </div>
+        <div class="search-row">
+          <input type="text" placeholder="Search questions..." id="prac-search" oninput="loadPracticeQuestions()">
+          <select class="filter-select" id="sort-select" onchange="loadPracticeQuestions()">
+            <option value="">Default</option>
+            <option value="easy">Easy First</option>
+            <option value="hard">Hard First</option>
+          </select>
+        </div>
+        <div class="q-list" id="q-list"><div class="page-loading"><div class="spinner"></div>Loading questions...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MOCK TEST -->
+  <div id="mocktest" class="page" style="padding:0">
+    <div id="test-start-screen" style="padding:40px;text-align:center">
+      <div style="max-width:500px;margin:0 auto">
+        <div style="font-size:48px;margin-bottom:16px">📝</div>
+        <h2 style="font-size:22px;font-weight:800;margin-bottom:8px" id="test-name-heading">Select a test to begin</h2>
+        <p style="color:var(--muted);font-size:14px;margin-bottom:8px" id="test-subjects-line"></p>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:28px" id="test-meta-line">Go to Dashboard and click "Start Test" on any exam card</p>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;text-align:left;margin-bottom:24px">
+          <div style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--amber)">Marking Scheme</div>
+          <ul style="color:var(--muted);font-size:13px;line-height:2.2;padding-left:18px">
+            <li>+4 marks for every correct answer</li>
+            <li>−1 mark for every wrong answer</li>
+            <li>0 marks for skipped questions</li>
+            <li>Timer runs — test auto-submits when time ends</li>
+          </ul>
+        </div>
+        <button class="btn btn-next" id="begin-test-btn" style="padding:13px 40px;font-size:15px;border-radius:10px;display:none;background:var(--accent);color:#fff;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;font-weight:700" onclick="beginTest()">Begin Test →</button>
+        <p id="test-select-hint" style="color:var(--muted);font-size:13px">← Go to Dashboard and click "Start Test"</p>
+      </div>
+    </div>
+
+    <!-- ACTIVE TEST UI -->
+    <div id="test-ui" style="display:none">
+      <div class="test-shell">
+        <div class="test-main">
+          <div class="test-hdr">
+            <div>
+              <div class="test-title" id="active-test-name"></div>
+              <div style="font-size:12px;color:var(--muted);margin-top:2px">Q <span id="cur-q-num">1</span> of <span id="total-q">—</span></div>
+            </div>
+            <div class="timer" id="test-timer">00:00:00</div>
+          </div>
+          <!-- FIX: subject tabs now filter to correct subject questions -->
+          <div class="subj-tabs" id="subj-tabs"></div>
+          <div class="q-box">
+            <div class="q-num-label" id="q-num-label">Question 1</div>
+            <!-- FIX: show subject tag on each question -->
+            <div id="q-subj-tag" style="margin-bottom:8px"></div>
+            <div class="q-text" id="q-text-display"></div>
+            <!-- FIX: review mode explanation box -->
+            <div id="review-expl" style="display:none;background:var(--surface2);border-radius:8px;padding:12px;font-size:13px;line-height:1.6;color:var(--muted);border-left:3px solid var(--accent);margin-bottom:12px"></div>
+            <div class="options" id="options-container"></div>
+          </div>
+          <div class="q-actions">
+            <button class="btn btn-sec" onclick="prevQ()">← Previous</button>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-skip" id="skip-btn" onclick="skipQ()">Mark for Review</button>
+              <button class="btn btn-next" id="next-btn" onclick="nextQ()" style="background:var(--accent);color:#fff">Save & Next →</button>
+            </div>
+          </div>
+        </div>
+        <div class="test-sidebar">
+          <h4 id="palette-title">Question Palette</h4>
+          <div class="q-grid" id="q-palette"></div>
+          <div class="legend" id="palette-legend">
+            <div class="leg-item"><div class="leg-dot" style="background:#EFF6FF;border:1px solid #2563EB"></div>Answered</div>
+            <div class="leg-item"><div class="leg-dot" style="background:#FFFBEB;border:1px solid #D97706"></div>For Review</div>
+            <div class="leg-item"><div class="leg-dot" style="background:var(--surface2);border:1px solid var(--border)"></div>Not Visited</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RESULT -->
+    <div id="test-result" style="display:none">
+      <div class="result-wrap">
+        <div style="text-align:center;margin-bottom:20px"><h2 style="font-size:22px;font-weight:800">Test Complete!</h2></div>
+        <div class="result-card">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:4px">Your Score</div>
+          <div class="score-pct" id="final-pct">0%</div>
+          <div style="font-size:13px;color:var(--muted);margin-top:4px" id="final-marks-text"></div>
+          <div class="score-breakdown">
+            <div class="sb-item"><div class="sb-val" style="color:var(--green)" id="res-correct">0</div><div class="sb-sub">Correct</div></div>
+            <div class="sb-item"><div class="sb-val" style="color:var(--red)" id="res-wrong">0</div><div class="sb-sub">Wrong</div></div>
+            <div class="sb-item"><div class="sb-val" style="color:var(--muted)" id="res-skip">0</div><div class="sb-sub">Skipped</div></div>
+          </div>
+        </div>
+        <div class="result-actions">
+          <button class="btn" style="background:linear-gradient(135deg,#2563EB,#7C3AED);color:#fff;padding:11px 22px" onclick="startReviewMode()">Review Answers</button>
+          <button class="btn btn-sec" onclick="backToDash()">Back to Dashboard</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAPERS -->
+  <div id="papers" class="page">
+    <div class="page-header"><h1>Previous Year Papers</h1><p>Download and attempt real exam papers</p></div>
+    <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+      <button class="filter-btn active" style="width:auto;border:1px solid var(--border);border-radius:8px;padding:7px 14px" onclick="filterPapers('all',this)">All</button>
+      <button class="filter-btn" style="width:auto;border:1px solid var(--border);border-radius:8px;padding:7px 14px" onclick="filterPapers('JEE',this)">JEE</button>
+      <button class="filter-btn" style="width:auto;border:1px solid var(--border);border-radius:8px;padding:7px 14px" onclick="filterPapers('MHT-CET',this)">MHT-CET</button>
+    </div>
+    <div class="papers-grid" id="papers-grid"><div class="page-loading"><div class="spinner"></div>Loading papers...</div></div>
+  </div>
+
+  <!-- ANALYTICS -->
+  <div id="analytics" class="page">
+    <div class="page-header"><h1>Performance Analytics</h1><p>Live data from your real test attempts</p></div>
+    <div class="notice">Complete at least one mock test to see your analytics. All data is live — no dummy values.</div>
+    <div class="analytics-grid">
+      <div class="big-panel"><h3>JEE — Subject Accuracy</h3><canvas id="barChartJEE" height="160"></canvas></div>
+      <div class="big-panel"><h3>MHT-CET — Subject Accuracy</h3><canvas id="barChartMHT" height="160"></canvas></div>
+    </div>
+    <div class="analytics-grid">
+      <div class="big-panel"><h3>Score Trend</h3><canvas id="lineChart" height="160"></canvas></div>
+      <div class="big-panel">
+        <h3>Answer Distribution</h3>
+        <div class="donut-wrap">
+          <canvas id="donutChart" width="140" height="140"></canvas>
+          <div class="donut-legend">
+            <div class="dl-item"><div class="dl-dot" style="background:#059669"></div><span id="dl-correct">Correct — 0%</span></div>
+            <div class="dl-item"><div class="dl-dot" style="background:#DC2626"></div><span id="dl-wrong">Wrong — 0%</span></div>
+            <div class="dl-item"><div class="dl-dot" style="background:#94A3B8"></div><span id="dl-skip">Skipped — 0%</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="big-panel" style="margin-bottom:16px">
+      <h3>Activity Heatmap (Last 90 Days)</h3>
+      <div class="week-labels"><div class="wl">Mon</div><div class="wl">Tue</div><div class="wl">Wed</div><div class="wl">Thu</div><div class="wl">Fri</div><div class="wl">Sat</div><div class="wl">Sun</div></div>
+      <div class="heatmap-grid" id="heatmap"></div>
+    </div>
+    <div class="big-panel">
+      <h3>Recent Test History</h3>
+      <table class="perf-table">
+        <thead><tr><th>Exam</th><th>Type</th><th>Score</th><th>Accuracy</th><th>Date</th><th>Status</th></tr></thead>
+        <tbody id="analytics-table"><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">No tests yet</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /app -->
+  <script type="module" src="/src/js/main.js"></script>
+</body>
+</html>

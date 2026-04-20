@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0">
+    <link rel="stylesheet" href="/src/css/global.css">
+    <title>MockMasters Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <span class="logo">MockMasters</span>
+    <span class="admin-badge">ADMIN</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <span id="admin-email" style="font-size:12px;color:var(--muted)"></span>
+    <button class="btn" style="background:var(--surface2);color:var(--text);border:1px solid var(--border)" onclick="window.location.href='https://cute-blancmange-8f085b.netlify.app'">← Back to App</button>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- ADD PAPER -->
+  <div class="card">
+    <h2>Add New Paper</h2>
+    <div class="form-group">
+      <label class="form-label">Paper Title</label>
+      <input type="text" class="form-input" id="p-title" placeholder="JEE Main 2024 January Session 1">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Exam Type</label>
+      <select class="form-select" id="p-type">
+        <option value="JEE">JEE</option>
+        <option value="MHT-CET">MHT-CET</option>
+        <option value="Generic">Generic</option>
+      </select>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="form-group">
+        <label class="form-label">Year</label>
+        <input type="number" class="form-input" id="p-year" placeholder="2024" value="2024">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Shift / Session</label>
+        <input type="text" class="form-input" id="p-shift" placeholder="Session 1">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="form-group">
+        <label class="form-label">Total Questions</label>
+        <input type="number" class="form-input" id="p-total-q" placeholder="90" value="90">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Duration (minutes)</label>
+        <input type="number" class="form-input" id="p-duration" placeholder="180" value="180">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Required Plan</label>
+      <select class="form-select" id="p-plan">
+        <option value="free">Free</option>
+        <option value="pro">Pro</option>
+        <option value="elite">Elite</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Upload PDF</label>
+      <input type="file" class="form-input" id="p-pdf" accept=".pdf" style="padding:6px">
+      <div class="hint">PDF will be uploaded to Supabase Storage automatically.</div>
+      <div class="progress-bar" id="upload-progress"><div class="progress-fill" id="progress-fill"></div></div>
+    </div>
+    <button class="btn btn-primary" id="add-paper-btn" onclick="addPaper()">Upload Paper</button>
+    <div class="success" id="paper-success"></div>
+    <div class="error" id="paper-error"></div>
+  </div>
+
+  <!-- ADD ANSWER KEY -->
+  <div class="card">
+    <h2>Add Answer Key</h2>
+    <div class="form-group">
+      <label class="form-label">Select Paper</label>
+      <select class="form-select" id="ak-paper">
+        <option value="">Loading papers...</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Answer Key</label>
+      <textarea class="form-textarea" id="ak-answers" placeholder="Paste answers in any of these formats:&#10;&#10;1-A, 2-C, 3-B, 4-D, 5-A&#10;&#10;or&#10;&#10;1. A&#10;2. C&#10;3. B"></textarea>
+      <div class="hint">Supported: "1-A, 2-B" or "1. A" or "1:A" or just "A B C D A B..."</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Subject Ranges (optional)</label>
+      <textarea class="form-textarea" id="ak-subjects" placeholder='{"1-30": "Physics", "31-60": "Chemistry", "61-90": "Mathematics"}' style="min-height:80px"></textarea>
+      <div class="hint">JSON format. Leave blank to use default split based on exam type.</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="form-group">
+        <label class="form-label">Marks (Correct)</label>
+        <input type="number" class="form-input" id="ak-correct" value="4">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Marks (Wrong)</label>
+        <input type="number" class="form-input" id="ak-wrong" value="1">
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="addAnswerKey()">Save Answer Key</button>
+    <div class="success" id="ak-success"></div>
+    <div class="error" id="ak-error"></div>
+  </div>
+</div>
+
+<!-- PAPERS LIST -->
+<div class="card">
+  <h2>All Papers <span id="papers-count" style="font-size:13px;font-weight:400;color:var(--muted)"></span></h2>
+  <div style="overflow-x:auto">
+    <table class="papers-table">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Type</th>
+          <th>Year</th>
+          <th>Questions</th>
+          <th>PDF</th>
+          <th>Answer Key</th>
+          <th>Plan</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="papers-tbody">
+        <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+  <script type="module" src="/src/js/admin.js"></script>
+</body>
+</html>
