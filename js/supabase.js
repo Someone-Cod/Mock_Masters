@@ -11,7 +11,14 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
   const script = document.createElement('script');
   script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
   script.onload = () => {
-    window._supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    window._supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        storageKey: 'mockmasters_session',
+        storage: window.localStorage,
+      }
+    });
     document.dispatchEvent(new Event('supabase:ready'));
   };
   script.onerror = () => {

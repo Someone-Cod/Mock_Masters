@@ -132,45 +132,80 @@ function showPage(page) {
 function setupAuth() {
   // Tab switching handled by DOMContentLoaded above
 
-  // Sign in
+  // Sign in — full handler with proper error messages
   document.getElementById('signinBtn').addEventListener('click', async () => {
-    const email = document.getElementById('signinEmail').value.trim();
+    const email    = document.getElementById('signinEmail').value.trim();
     const password = document.getElementById('signinPassword').value;
-    const msg = document.getElementById('signinMsg');
-    msg.textContent = '';
+    const msg      = document.getElementById('signinMsg');
+    msg.textContent = ''; msg.className = 'auth-msg';
     if (!email || !password) { msg.textContent = 'Please fill in all fields.'; return; }
 
     if (!window._supabase) {
-      // Demo mode: just enter the app
       currentUser = { id: 'demo', email, user_metadata: { full_name: 'Demo User' } };
-      enterApp();
-      return;
+      enterApp(); return;
     }
 
+    const btn = document.getElementById('signinBtn');
+    btn.textContent = 'Signing in…'; btn.disabled = true;
     const { error } = await db.signIn(email, password);
-    if (error) { msg.textContent = error.message; }
+    btn.textContent = 'Sign In'; btn.disabled = false;
+
+    if (error) {
+      const e = error.message.toLowerCase();
+      if (e.includes('not confirmed') || e.includes('email not confirmed')) {
+        msg.innerHTML = 'Email not confirmed yet. <button class="resend-btn" id="resendConfirmBtn">Resend confirmation email</button>';
+        document.getElementById('resendConfirmBtn')?.addEventListener('click', async () => {
+          const { error: re } = await window._supabase.auth.resend({ type: 'signup', email });
+          msg.className = 'auth-msg' + (re ? '' : ' success');
+          msg.textContent = re ? re.message : '✅ Confirmation email resent — check your inbox.';
+        });
+      } else if (e.includes('invalid') || e.includes('credentials') || e.includes('wrong')) {
+        msg.textContent = 'Incorrect email or password. Please try again.';
+      } else {
+        msg.textContent = error.message;
+      }
+    }
+    // success handled by onAuthChange → enterApp()
   });
 
   // Sign up
   document.getElementById('signupBtn').addEventListener('click', async () => {
-    const name = document.getElementById('signupName').value.trim();
-    const email = document.getElementById('signupEmail').value.trim();
+    const name     = document.getElementById('signupName').value.trim();
+    const email    = document.getElementById('signupEmail').value.trim();
     const password = document.getElementById('signupPassword').value;
-    const exam = document.getElementById('signupExam').value;
-    const msg = document.getElementById('signupMsg');
-    msg.textContent = '';
+    const exam     = document.getElementById('signupExam').value;
+    const msg      = document.getElementById('signupMsg');
+    msg.textContent = ''; msg.className = 'auth-msg';
     if (!name || !email || !password) { msg.textContent = 'Please fill in all fields.'; return; }
-    if (password.length < 6) { msg.textContent = 'Password must be at least 6 characters.'; return; }
+    if (password.length < 8) { msg.textContent = 'Password must be at least 8 characters.'; return; }
 
     if (!window._supabase) {
       currentUser = { id: 'demo', email, user_metadata: { full_name: name, target_exam: exam } };
-      enterApp();
-      return;
+      enterApp(); return;
     }
 
-    const { error } = await db.signUp(email, password, { full_name: name, target_exam: exam });
-    if (error) { msg.textContent = error.message; }
-    else { msg.textContent = 'Account created! Check your email to confirm.'; msg.classList.add('success'); }
+    const btn = document.getElementById('signupBtn');
+    btn.textContent = 'Creating account…'; btn.disabled = true;
+    const { data, error } = await db.signUp(email, password, { full_name: name, target_exam: exam });
+    btn.textContent = 'Create Account'; btn.disabled = false;
+
+    if (error) {
+      const e = error.message.toLowerCase();
+      if (e.includes('already registered') || e.includes('already exists')) {
+        msg.innerHTML = 'Account already exists. <button class="resend-btn" onclick="showSigninPanel()">Sign in instead →</button>';
+      } else { msg.textContent = error.message; }
+    } else if (data?.session) {
+      // email confirmation OFF — auto logged in via onAuthChange
+      msg.className = 'auth-msg success';
+      msg.textContent = '✅ Account created! Signing you in…';
+    } else {
+      msg.className = 'auth-msg success';
+      msg.innerHTML = '✅ Account created! Check <strong>' + email + '</strong> for a confirmation link, then sign in.<br><small><button class="resend-btn" id="resendNewBtn">Resend email</button></small>';
+      document.getElementById('resendNewBtn')?.addEventListener('click', async () => {
+        await window._supabase?.auth.resend({ type: 'signup', email });
+        msg.textContent = '✅ Resent — check your inbox.';
+      });
+    }
   });
 
   // Sign out
@@ -299,6 +334,7 @@ function renderQuestionBank() {
   const sort = document.getElementById('filterSort').value;
 
   let qs = allQuestions.filter(q => {
+    if (!q || !q.text) return false; // skip malformed
     if (exam && q.exam !== exam) return false;
     if (subject && q.subject !== subject) return false;
     if (diff && q.difficulty !== diff) return false;
@@ -312,18 +348,19 @@ function renderQuestionBank() {
 
   if (qs.length === 0) {
     document.getElementById('questionBank').innerHTML = '<p class="muted center">No questions match your filters.</p>';
-    return;
+    _applyZoom(); return;
   }
 
   document.getElementById('questionBank').innerHTML = qs.map((q, i) => `
     <div class="q-card">
       <div class="q-card-header">
-        <span class="q-tag ${q.difficulty}">${q.difficulty}</span>
-        <span class="q-subject">${capitalize(q.subject)} · ${q.exam?.toUpperCase()}</span>
+        <span class="q-tag ${q.difficulty || 'medium'}">${q.difficulty || 'medium'}</span>
+        <span class="q-subject">${capitalize(q.subject || 'general')} · ${(q.exam || '').toUpperCase()}</span>
       </div>
-      <div class="q-text">${i + 1}. ${q.text}</div>
+      <div class="q-text">${i + 1}. ${q.text || 'Question text unavailable'}</div>
     </div>
   `).join('');
+  _applyZoom();
 }
 
 function diffOrder(d) { return d === 'easy' ? 0 : d === 'medium' ? 1 : 2; }
@@ -335,7 +372,7 @@ function quickStart(exam) {
     : DEMO_QUESTIONS.filter(q => q.exam === exam || exam === 'generic');
 
   if (qs.length === 0) {
-    alert('No questions found for this exam. Add questions to Supabase first!');
+    
     return;
   }
 
@@ -608,12 +645,34 @@ function buildHeatmap(tests) {
 
 // ─── Data fetchers ─────────────────────────────────────────────────────────────
 async function fetchQuestions() {
-  if (!window._supabase) return DEMO_QUESTIONS;
+  // Always include MHT-CET PYQ questions
+  const pyq = typeof MHT_CET_QUESTIONS !== 'undefined' ? MHT_CET_QUESTIONS : [];
+
+  if (!window._supabase) return [...DEMO_QUESTIONS, ...pyq];
   try {
     const { data, error } = await db.from('questions').select('*');
-    if (error || !data?.length) return DEMO_QUESTIONS;
-    return data;
-  } catch { return DEMO_QUESTIONS; }
+    if (error || !data?.length) return [...DEMO_QUESTIONS, ...pyq];
+
+    // Normalise Supabase rows — handle varied field names
+    const normalised = data.map(q => ({
+      id:         q.id,
+      exam:       q.exam || 'jee',
+      subject:    q.subject || 'physics',
+      difficulty: q.difficulty || 'medium',
+      text:       q.text || q.question || q.question_text || '',
+      options:    Array.isArray(q.options)
+                    ? q.options
+                    : [q.option_a || q.a, q.option_b || q.b, q.option_c || q.c, q.option_d || q.d].filter(Boolean),
+      answer:     typeof q.answer === 'number' ? q.answer : parseInt(q.correct_option || q.correct || 0),
+      year:       q.year,
+      source:     q.source,
+    })).filter(q => q.text && q.options?.length === 4);
+
+    // Merge: Supabase questions + PYQ (avoid duplicates by id)
+    const supabaseIds = new Set(normalised.map(q => q.id));
+    const uniquePyq = pyq.filter(q => !supabaseIds.has(q.id));
+    return [...normalised, ...uniquePyq];
+  } catch { return [...DEMO_QUESTIONS, ...pyq]; }
 }
 
 async function fetchUserTests() {
@@ -658,117 +717,6 @@ function shuffleArray(arr) {
 // ═══════════════════════════════════════════════════════════════════
 //  NEW FEATURES — appended, zero changes to code above
 // ═══════════════════════════════════════════════════════════════════
-
-// ─── FIX: Better sign-in error handling (patches existing signinBtn) ──────────
-// We hook into the supabase:ready event AFTER the original setupAuth() runs
-// and replace the signinBtn click with an improved version that handles
-// the "email not confirmed" error gracefully.
-document.addEventListener('supabase:ready', () => {
-  // Wait one tick so setupAuth() registers first, then we override signinBtn
-  setTimeout(() => {
-    const signinBtn = document.getElementById('signinBtn');
-    if (!signinBtn) return;
-
-    // Clone to remove old listener, attach improved one
-    const freshBtn = signinBtn.cloneNode(true);
-    signinBtn.parentNode.replaceChild(freshBtn, signinBtn);
-
-    freshBtn.addEventListener('click', async () => {
-      const email    = document.getElementById('signinEmail').value.trim();
-      const password = document.getElementById('signinPassword').value;
-      const msg      = document.getElementById('signinMsg');
-      msg.textContent = '';
-      msg.className   = 'auth-msg';
-
-      if (!email || !password) { msg.textContent = 'Please fill in all fields.'; return; }
-
-      if (!window._supabase) {
-        currentUser = { id: 'demo', email, user_metadata: { full_name: 'Demo User' } };
-        enterApp(); return;
-      }
-
-      freshBtn.textContent = 'Signing in…';
-      freshBtn.disabled = true;
-      const { error } = await db.signIn(email, password);
-      freshBtn.textContent = 'Sign In';
-      freshBtn.disabled = false;
-
-      if (!error) return; // onAuthStateChange handles success
-
-      const e = error.message.toLowerCase();
-      if (e.includes('not confirmed') || e.includes('email not confirmed')) {
-        msg.innerHTML = 'Email not confirmed yet. <button class="resend-btn" id="resendConfirmBtn">Resend email</button>';
-        document.getElementById('resendConfirmBtn')?.addEventListener('click', async () => {
-          const { error: re } = await window._supabase.auth.resend({ type: 'signup', email });
-          msg.className = 'auth-msg ' + (re ? '' : 'success');
-          msg.textContent = re ? re.message : '✅ Confirmation email resent — check your inbox.';
-        });
-      } else if (e.includes('invalid') || e.includes('credentials')) {
-        msg.textContent = 'Incorrect email or password.';
-      } else {
-        msg.textContent = error.message;
-      }
-    });
-
-    // Also improve sign-up: after creating account tell user to confirm
-    const signupBtn = document.getElementById('signupBtn');
-    if (signupBtn) {
-      const freshSU = signupBtn.cloneNode(true);
-      signupBtn.parentNode.replaceChild(freshSU, signupBtn);
-      freshSU.addEventListener('click', async () => {
-        const name  = document.getElementById('signupName').value.trim();
-        const email = document.getElementById('signupEmail').value.trim();
-        const pass  = document.getElementById('signupPassword').value;
-        const exam  = document.getElementById('signupExam').value;
-        const msg   = document.getElementById('signupMsg');
-        msg.textContent = ''; msg.className = 'auth-msg';
-
-        if (!name || !email || !pass) { msg.textContent = 'Please fill in all fields.'; return; }
-        if (pass.length < 6) { msg.textContent = 'Password must be at least 6 characters.'; return; }
-
-        if (!window._supabase) {
-          currentUser = { id: 'demo', email, user_metadata: { full_name: name, target_exam: exam } };
-          enterApp(); return;
-        }
-
-        freshSU.textContent = 'Creating account…'; freshSU.disabled = true;
-        const { data, error } = await db.signUp(email, pass, { full_name: name, target_exam: exam });
-        freshSU.textContent = 'Create Account'; freshSU.disabled = false;
-
-        if (error) {
-          const el = error.message.toLowerCase();
-          if (el.includes('already registered') || el.includes('user already registered')) {
-            msg.innerHTML = 'Account already exists. <button class="resend-btn" onclick="showSigninPanel()">Sign in instead →</button>';
-          } else if (el.includes('invalid email')) {
-            msg.textContent = 'Please enter a valid email address.';
-          } else if (el.includes('password')) {
-            msg.textContent = 'Password must be at least 6 characters.';
-          } else {
-            msg.textContent = error.message;
-          }
-        } else if (data?.session) {
-          // ✅ Email confirmation is OFF — user is immediately logged in
-          // onAuthStateChange fires and calls enterApp() automatically
-          msg.className = 'auth-msg success';
-          msg.textContent = '✅ Account created! Signing you in…';
-        } else if (data?.user) {
-          // Email confirmation is ON — user created but not yet confirmed
-          msg.className = 'auth-msg success';
-          msg.innerHTML = '✅ Account created! We sent a confirmation email to <strong>' + email + '</strong>.<br>Click the link in the email, then come back and sign in.<br><small style="color:var(--fg2)">Didn\'t receive it? <button class="resend-btn" id="resendNewBtn">Resend email</button></small>';
-          document.getElementById('resendNewBtn')?.addEventListener('click', async () => {
-            const { error: re } = await window._supabase?.auth.resend({ type: 'signup', email });
-            if (!re) msg.textContent = '✅ Resent — check your inbox.';
-          });
-        } else {
-          msg.textContent = 'Something went wrong. Please try again.';
-        }
-      });
-    }
-
-    // Forgot password wired in DOMContentLoaded above
-
-  }, 0);
-});
 
 // ─── Forgot Password ──────────────────────────────────────────────────────────
 document.addEventListener('supabase:ready', () => {
@@ -1048,7 +996,7 @@ window.quickStart = function(exam) {
       ? allQuestions.filter(q => q.exam === 'mhtcet')
       : MHT_CET_QUESTIONS;
     if (pool.length === 0) {
-      alert('No MHT-CET questions found.');
+      
       return;
     }
     const selected = shuffleArray(pool).slice(0, Math.min(50, pool.length));
@@ -1170,7 +1118,7 @@ window.quickStart = function(exam) {
   });
 
   if (allSelected.length === 0) {
-    alert('No questions found. Add questions to Supabase first!');
+    
     return;
   }
 
@@ -1718,19 +1666,6 @@ document.addEventListener('supabase:ready', () => {
 
 // ─── Papers: Start CBT from paper card ────────────────────────────────────────
 function startPaperCBT(paperId, exam, title) {
-  // Use questions filtered by exam from the pool
-  const pool = allQuestions.length > 0 ? allQuestions : DEMO_QUESTIONS;
-  const qs = pool.filter(q => q.exam === exam);
-
-  if (qs.length === 0) {
-    // No questions yet — show informative alert
-    const examName = exam === 'jee' ? 'JEE Main' : 'MHT-CET';
-    alert(examName + ' questions are being added. For now starting with demo questions.');
-    quickStart(exam);
-    return;
-  }
-
-  // Shuffle and start as a full CBT for that exam
-  navigateTo('mocktest');
+  // Just start the CBT — no alerts
   quickStart(exam);
 }
