@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MockMasters</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ── New feature styles only — style.css untouched ── */
+
+    /* Forgot password link */
+    .forgot-row { display:flex; justify-content:flex-end; margin:-4px 0 10px; }
+    .forgot-link-btn { background:none; border:none; color:var(--accent); font-size:0.82rem;
+      cursor:pointer; padding:0; font-family:inherit; text-decoration:underline; opacity:0.85; }
+    .forgot-link-btn:hover { opacity:1; }
+
+    /* Forgot / reset password panel */
+    /* forgotForm visibility controlled by JS only */
+    .forgot-back { background:none; border:none; color:var(--accent); font-size:0.82rem;
+      cursor:pointer; font-family:inherit; margin-top:12px; padding:0; text-decoration:underline; }
+    .auth-msg.success { color:#22c55e !important; }
+    .resend-btn { background:none; border:none; color:var(--accent); cursor:pointer;
+      font-family:inherit; font-size:inherit; text-decoration:underline; padding:0; }
+
+    /* Zoom controls */
+    .zoom-bar { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+    .zoom-bar label { font-size:0.82rem; color:var(--fg2); font-weight:500; }
+    .zoom-bar span { font-size:0.82rem; color:var(--fg2); min-width:36px; text-align:center; font-weight:600; }
+    .zoom-bar button { width:30px; height:30px; border-radius:8px; border:1px solid var(--border);
+      background:var(--bg2); color:var(--fg1); font-size:1.1rem; cursor:pointer;
+      display:flex; align-items:center; justify-content:center; transition:all 0.15s; font-family:inherit; }
+    .zoom-bar button:hover:not(:disabled) { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .zoom-bar button:disabled { opacity:0.3; cursor:not-allowed; }
+    .zoom-bar .reset-zoom { font-size:0.75rem; padding:4px 10px; width:auto; border-radius:6px; }
+
+    /* Inline submit button below nav buttons */
+    .inline-submit { margin-top:16px; }
+    .inline-submit button { width:100%; padding:13px; border-radius:10px; border:none;
+      background:#ef4444; color:#fff; font-size:1rem; font-weight:600; cursor:pointer;
+      font-family:inherit; transition:background 0.2s; }
+    .inline-submit button:hover { background:#dc2626; }
+
+    /* Timer warning */
+    .timer.warning { color:#ef4444 !important; }
+
+    /* ── Real CBT UI ── */
+
+    /* Instructions screen */
+    #testInstructions { padding:0; }
+    .instr-topbar { background:var(--accent); color:#fff; padding:10px 20px; display:flex; justify-content:space-between; align-items:center; font-weight:600; font-size:0.95rem; }
+    .instr-body { padding:20px 24px; }
+    .instr-body h2 { font-size:1.2rem; margin-bottom:14px; }
+    .instr-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:18px; }
+    .instr-box { background:var(--bg2); border-radius:10px; padding:14px 16px; }
+    .instr-box h4 { font-size:0.82rem; text-transform:uppercase; letter-spacing:.05em; color:var(--fg2); margin-bottom:8px; }
+    .instr-row { display:flex; justify-content:space-between; font-size:0.88rem; padding:4px 0; border-bottom:1px solid var(--border); }
+    .instr-row:last-child { border:none; }
+    .instr-scheme { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+    .scheme-pill { padding:6px 14px; border-radius:20px; font-size:0.82rem; font-weight:600; }
+    .scheme-pill.pos { background:#d1fae5; color:#065f46; }
+    .scheme-pill.neg { background:#fee2e2; color:#7f1d1d; }
+    .scheme-pill.zero { background:var(--bg2); color:var(--fg2); }
+    .instr-legend { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:18px; }
+    .pal-item { display:flex; align-items:center; gap:7px; font-size:0.82rem; }
+    .pal-dot { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:0.72rem; font-weight:700; color:#fff; flex-shrink:0; }
+    .pal-dot.notvisited { background:#94a3b8; }
+    .pal-dot.notanswered { background:#ef4444; }
+    .pal-dot.answered { background:#22c55e; }
+    .pal-dot.markedreview { background:#8b5cf6; }
+    .pal-dot.answeredreview { background:#8b5cf6; outline:3px solid #22c55e; }
+    .instr-agree { display:flex; align-items:center; gap:10px; margin-bottom:18px; font-size:0.88rem; }
+    .instr-agree input { width:18px; height:18px; cursor:pointer; accent-color:var(--accent); }
+    .instr-start { width:100%; padding:13px; background:var(--accent); color:#fff; border:none; border-radius:10px; font-size:1rem; font-weight:700; cursor:pointer; font-family:inherit; opacity:0.45; pointer-events:none; transition:all .2s; }
+    .instr-start.ready { opacity:1; pointer-events:auto; }
+    .instr-start.ready:hover { filter:brightness(1.1); }
+
+    /* CBT topbar (candidate info strip) */
+    .cbt-topbar { display:flex; align-items:center; justify-content:space-between; background:var(--accent); color:#fff; padding:8px 18px; font-size:0.85rem; gap:12px; flex-wrap:wrap; }
+    .cbt-candidate { font-weight:600; display:flex; align-items:center; gap:6px; }
+    .cbt-exam-badge { background:rgba(255,255,255,0.2); border-radius:20px; padding:3px 12px; font-size:0.8rem; font-weight:600; }
+    .cbt-timer-wrap { display:flex; align-items:center; gap:7px; font-weight:700; font-size:1rem; }
+    .cbt-timer-wrap .timer { color:#fff; font-family:'JetBrains Mono', monospace; font-size:1.1rem; }
+    .cbt-timer-wrap .timer.warning { color:#fde68a !important; }
+
+    /* Section tabs */
+    .cbt-sections { display:flex; gap:0; border-bottom:2px solid var(--border); background:var(--bg1); overflow-x:auto; }
+    .section-tab { padding:10px 22px; border:none; background:none; color:var(--fg2); font-size:0.88rem; font-weight:600; cursor:pointer; border-bottom:3px solid transparent; margin-bottom:-2px; white-space:nowrap; font-family:inherit; transition:all .15s; }
+    .section-tab:hover { color:var(--fg1); background:var(--bg2); }
+    .section-tab.active { color:var(--accent); border-bottom-color:var(--accent); background:var(--bg1); }
+    .section-tab .tab-count { font-size:0.72rem; background:var(--bg3); border-radius:10px; padding:1px 6px; margin-left:5px; font-weight:500; }
+    .section-tab.active .tab-count { background:var(--accent); color:#fff; }
+
+    /* Question type badge */
+    .q-type-bar { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+    .q-type-badge { font-size:0.75rem; font-weight:700; padding:3px 10px; border-radius:20px; text-transform:uppercase; letter-spacing:.04em; }
+    .q-type-badge.mcq { background:#dbeafe; color:#1e40af; }
+    .q-type-badge.integer { background:#fef3c7; color:#92400e; }
+
+    /* 5-colour palette */
+    .palette-num.notvisited  { background:#94a3b8 !important; color:#fff !important; border-color:#94a3b8 !important; }
+    .palette-num.notanswered { background:#ef4444 !important; color:#fff !important; border-color:#ef4444 !important; }
+    .palette-num.answered    { background:#22c55e !important; color:#fff !important; border-color:#22c55e !important; }
+    .palette-num.review      { background:#8b5cf6 !important; color:#fff !important; border-color:#8b5cf6 !important; }
+    .palette-num.answeredreview { background:#8b5cf6 !important; color:#fff !important; border-color:#22c55e !important; outline:2px solid #22c55e; }
+    .palette-num.current     { outline:3px solid var(--accent) !important; outline-offset:2px; }
+
+    /* Palette legend 5-colour */
+    .palette-legend { display:flex; flex-direction:column; gap:5px; margin-bottom:12px; font-size:0.75rem; }
+    .pal-legend-item { display:flex; align-items:center; gap:7px; }
+    .pal-legend-dot { width:22px; height:22px; border-radius:50%; flex-shrink:0; }
+
+    /* Section summary strip */
+    .section-summary { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; font-size:0.75rem; }
+    .ss-item { display:flex; align-items:center; gap:4px; }
+    .ss-dot { width:10px; height:10px; border-radius:50%; }
+
+    /* Clear response btn */
+    .btn-clear { background:none; border:1px solid var(--border); color:var(--fg2); padding:8px 14px; border-radius:8px; cursor:pointer; font-family:inherit; font-size:0.85rem; transition:all .15s; }
+    .btn-clear:hover { background:#fee2e2; border-color:#ef4444; color:#ef4444; }
+
+    /* Sidebar candidate card */
+    .sidebar-profile { background:var(--bg2); border-radius:10px; padding:12px; margin-bottom:12px; display:flex; align-items:center; gap:10px; }
+    .sidebar-avatar { width:38px; height:38px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-size:1.1rem; font-weight:700; flex-shrink:0; }
+    .sidebar-profile-info { font-size:0.82rem; line-height:1.4; }
+    .sidebar-profile-info strong { font-size:0.88rem; display:block; }
+
+    /* Result extras */
+    .result-marks { font-size:1.5rem; font-weight:700; text-align:center; margin:8px 0; }
+    .result-section-breakdown { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin:14px 0; }
+    .rsb-card { background:var(--bg2); border-radius:10px; padding:12px; text-align:center; }
+    .rsb-card h5 { font-size:0.8rem; color:var(--fg2); margin-bottom:4px; }
+    .rsb-card .rsb-val { font-size:1.2rem; font-weight:700; }
+
+    /* Integer input */
+    .integer-input-wrap { margin-top:16px; }
+    .integer-input-wrap label { font-size:0.85rem; color:var(--fg2); display:block; margin-bottom:6px; }
+    .integer-input { width:140px; padding:10px 14px; border-radius:8px; border:2px solid var(--border); background:var(--bg2); color:var(--fg1); font-size:1.1rem; font-family:'JetBrains Mono',monospace; text-align:center; }
+    .integer-input:focus { outline:none; border-color:var(--accent); }
+  </style>
+</head>
+<body class="light" data-page="auth">
+
+  <!-- ═══════════════════════════════════════════
+       NAV
+  ═══════════════════════════════════════════ -->
+  <nav id="navbar" class="hidden" style="display:none">
+    <div class="nav-brand">
+      <span class="brand-icon">⚡</span>
+      <span class="brand-name">MockMasters</span>
+    </div>
+    <div class="nav-links">
+      <button class="nav-btn active" data-page="dashboard">Dashboard</button>
+      <button class="nav-btn" data-page="practice">Practice</button>
+      <button class="nav-btn" data-page="mocktest">Mock Test</button>
+      <button class="nav-btn" data-page="papers">Papers</button>
+      <button class="nav-btn" data-page="analytics">Analytics</button>
+    </div>
+    <div class="nav-actions">
+      <button id="themeToggle" title="Toggle theme">🌙</button>
+      <button id="helpBtn" title="Help">?</button>
+      <button id="signOutBtn">Sign out</button>
+    </div>
+  </nav>
+
+  <!-- ═══════════════════════════════════════════
+       AUTH PAGE
+  ═══════════════════════════════════════════ -->
+  <div id="page-auth" class="page active">
+    <div class="auth-hero">
+      <div class="auth-brand">
+        <span class="brand-icon large">⚡</span>
+        <h1>MockMasters</h1>
+        <p class="tagline">India's smartest exam prep platform</p>
+      </div>
+      <div class="auth-card">
+        <div class="auth-tabs">
+          <button class="auth-tab active" id="signinTab">Sign In</button>
+          <button class="auth-tab" id="signupTab">Sign Up</button>
+        </div>
+
+        <!-- Sign In Form -->
+        <div id="signinForm" class="auth-form">
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="signinEmail" placeholder="you@example.com" />
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="signinPassword" placeholder="••••••••" />
+          </div>
+          <div class="forgot-row">
+            <button class="forgot-link-btn" id="forgotLink">Forgot password?</button>
+          </div>
+          <button class="btn-primary full" id="signinBtn">Sign In</button>
+          <p class="auth-msg" id="signinMsg"></p>
+        </div>
+
+        <!-- Forgot Password Panel -->
+        <div id="forgotForm">
+          <h3 style="margin-bottom:8px;font-size:1.05rem;">Reset password</h3>
+          <p style="font-size:0.84rem;color:var(--fg2);margin-bottom:14px;">Enter your email and we'll send a reset link.</p>
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="resetEmail" placeholder="you@example.com" />
+          </div>
+          <button class="btn-primary full" id="sendResetBtn">Send Reset Link</button>
+          <p class="auth-msg" id="forgotMsg"></p>
+          <button class="forgot-back" id="backToSignin">← Back to Sign In</button>
+        </div>
+
+        <!-- Sign Up Form -->
+        <div id="signupForm" class="auth-form hidden" style="display:none">
+          <div class="form-group">
+            <label>Full Name</label>
+            <input type="text" id="signupName" placeholder="Your name" />
+          </div>
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="signupEmail" placeholder="you@example.com" />
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="signupPassword" placeholder="Min 6 characters" />
+          </div>
+          <div class="form-group">
+            <label>Target Exam</label>
+            <select id="signupExam">
+              <option value="jee">JEE Main / Advanced</option>
+              <option value="mhtcet">MHT-CET</option>
+              <option value="neet">NEET</option>
+              <option value="generic">Other / Generic</option>
+            </select>
+          </div>
+          <button class="btn-primary full" id="signupBtn">Create Account</button>
+          <p class="auth-msg" id="signupMsg"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       DASHBOARD PAGE
+  ═══════════════════════════════════════════ -->
+  <div id="page-dashboard" class="page hidden" style="display:none">
+    <div class="page-content">
+      <div class="page-header">
+        <h2>Welcome back 👋</h2>
+        <p class="subtitle" id="dashboardSubtitle">Loading your stats...</p>
+      </div>
+
+      <!-- Stats Row -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="statTests">—</div>
+          <div class="stat-label">Tests Taken</div>
+          <div class="stat-sub" id="statTestsSub">Loading...</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statAccuracy">—</div>
+          <div class="stat-label">Avg Accuracy</div>
+          <div class="stat-sub" id="statAccuracySub">Loading...</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statQuestions">—</div>
+          <div class="stat-label">Questions Done</div>
+          <div class="stat-sub">Total attempted</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statLastActive">—</div>
+          <div class="stat-label">Last Active</div>
+          <div class="stat-sub">Keep going!</div>
+        </div>
+      </div>
+
+      <!-- Subject Performance -->
+      <div class="section-card">
+        <div class="section-header">
+          <h3>Subject Performance</h3>
+          <span class="badge">Live from your attempts</span>
+        </div>
+        <div id="subjectPerformance" class="subject-bars">
+          <p class="muted">Loading performance...</p>
+        </div>
+      </div>
+
+      <!-- Quick Start -->
+      <div class="section-card">
+        <div class="section-header">
+          <h3>Quick Start a Test</h3>
+        </div>
+        <div class="exam-cards">
+          <div class="exam-card" onclick="quickStart('jee')">
+            <div class="exam-icon">🔬</div>
+            <div class="exam-info">
+              <h4>JEE Main</h4>
+              <p>Physics · Chemistry · Maths</p>
+            </div>
+            <button class="btn-start">Start Test →</button>
+          </div>
+          <div class="exam-card" onclick="quickStart('mhtcet')">
+            <div class="exam-icon">🧬</div>
+            <div class="exam-info">
+              <h4>MHT-CET</h4>
+              <p>Physics · Chemistry · Maths · 96 PYQs</p>
+            </div>
+            <button class="btn-start">Start Test →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent Tests -->
+      <div class="section-card">
+        <h3>Recent Tests</h3>
+        <div id="recentTests">
+          <p class="muted">Loading history...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       PRACTICE PAGE
+  ═══════════════════════════════════════════ -->
+  <div id="page-practice" class="page hidden" style="display:none">
+    <div class="page-content">
+      <div class="page-header">
+        <h2>Practice</h2>
+      </div>
+
+      <!-- Filters -->
+      <div class="filters-row">
+        <div class="filter-group">
+          <label>Exam</label>
+          <select id="filterExam">
+            <option value="">All Exams</option>
+            <option value="jee">JEE (PCM)</option>
+            <option value="mhtcet">MHT-CET (PCM+Bio)</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Subject</label>
+          <select id="filterSubject">
+            <option value="">All Subjects</option>
+            <option value="physics">Physics</option>
+            <option value="chemistry">Chemistry</option>
+            <option value="mathematics">Mathematics</option>
+            <option value="biology">Biology (MHT only)</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Difficulty</label>
+          <select id="filterDifficulty">
+            <option value="">All Levels</option>
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Sort</label>
+          <select id="filterSort">
+            <option value="default">Default</option>
+            <option value="easy_first">Easy First</option>
+            <option value="hard_first">Hard First</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Question Bank -->
+      <div class="section-card">
+        <div class="section-header">
+          <h3>Question Bank</h3>
+          <span class="badge" id="questionCount">Loading...</span>
+        </div>
+        <!-- Zoom controls -->
+        <div class="zoom-bar">
+          <label>Zoom</label>
+          <button id="zoomOut" title="Zoom Out">−</button>
+          <span id="zoomLevel">100%</span>
+          <button id="zoomIn" title="Zoom In">+</button>
+          <button class="reset-zoom" id="zoomReset">Reset</button>
+        </div>
+        <div id="questionBank">
+          <p class="muted center">Loading questions from Supabase...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       MOCK TEST PAGE
+  ═══════════════════════════════════════════ -->
+  <div id="page-mocktest" class="page hidden" style="display:none">
+    <div class="page-content" style="padding:0;max-width:100%;">
+
+      <!-- Pre-test state -->
+      <div id="pretestState" class="pretest-center" style="max-width:560px;margin:40px auto;padding:24px;">
+        <div class="pretest-icon">📝</div>
+        <h2>Select a test to begin</h2>
+        <p>Go to Dashboard → Quick Start to select a test</p>
+        <div class="marking-scheme">
+          <h4>Marking Scheme</h4>
+          <ul>
+            <li>+4 marks for every correct answer</li>
+            <li>−1 mark for every incorrect answer</li>
+            <li>0 marks for skipped / unattempted</li>
+            <li>Timer runs — no pauses allowed</li>
+          </ul>
+        </div>
+        <button class="btn-primary" onclick="navigateTo('dashboard')">← Go to Dashboard and click "Start Test"</button>
+      </div>
+
+      <!-- ── Instructions Screen ── -->
+      <div id="testInstructions" class="hidden" style="display:none">
+        <div class="instr-topbar">
+          <span id="instrExamName">JEE Main 2025 — Mock Test</span>
+          <span id="instrCandidateName">Candidate</span>
+        </div>
+        <div class="instr-body">
+          <h2>General Instructions</h2>
+          <div class="instr-grid">
+            <div class="instr-box">
+              <h4>Exam Details</h4>
+              <div class="instr-row"><span>Exam</span><strong id="instrExamLabel">—</strong></div>
+              <div class="instr-row"><span>Total Questions</span><strong id="instrTotalQ">—</strong></div>
+              <div class="instr-row"><span>Total Marks</span><strong id="instrTotalMarks">—</strong></div>
+              <div class="instr-row"><span>Duration</span><strong id="instrDuration">—</strong></div>
+            </div>
+            <div class="instr-box">
+              <h4>Sections</h4>
+              <div id="instrSections"></div>
+            </div>
+          </div>
+          <h4 style="margin-bottom:8px;">Marking Scheme</h4>
+          <div class="instr-scheme" id="instrScheme"></div>
+          <h4 style="margin-bottom:8px;">Question Status Legend</h4>
+          <div class="instr-legend">
+            <div class="pal-item"><div class="pal-dot notvisited">1</div><span>Not Visited — you have not visited the question yet</span></div>
+            <div class="pal-item"><div class="pal-dot notanswered">2</div><span>Not Answered — visited but no answer selected</span></div>
+            <div class="pal-item"><div class="pal-dot answered">3</div><span>Answered — answer saved</span></div>
+            <div class="pal-item"><div class="pal-dot markedreview">4</div><span>Marked for Review — will be evaluated</span></div>
+            <div class="pal-item"><div class="pal-dot answeredreview">5</div><span>Answered &amp; Marked for Review</span></div>
+          </div>
+          <div class="instr-agree">
+            <input type="checkbox" id="instrAgree" />
+            <label for="instrAgree">I have read and understood all the instructions. I agree to abide by the rules of the examination.</label>
+          </div>
+          <button class="instr-start" id="instrStartBtn">Start Exam →</button>
+        </div>
+      </div>
+
+      <!-- ── Active Test ── -->
+      <div id="activeTest" class="hidden" style="display:none">
+        <!-- Candidate Info Topbar -->
+        <div class="cbt-topbar">
+          <div class="cbt-candidate">👤 <span id="cbtCandidateName">Candidate</span></div>
+          <div class="cbt-exam-badge" id="cbtExamBadge">JEE Main</div>
+          <div class="cbt-timer-wrap">⏱ <span id="testTimer" class="timer">00:00:00</span></div>
+        </div>
+
+        <!-- Section Tabs -->
+        <div class="cbt-sections" id="sectionTabs"></div>
+
+        <!-- Test layout -->
+        <div class="test-layout">
+          <div class="test-main">
+            <!-- Question type + progress -->
+            <div class="q-type-bar">
+              <span class="q-type-badge mcq" id="qTypeBadge">MCQ</span>
+              <span id="questionProgress">Q 1 of —</span>
+            </div>
+            <div class="question-card">
+              <h3 id="questionTitle">Question 1</h3>
+              <div id="questionContent" class="question-content"></div>
+              <div id="optionsContainer" class="options-grid"></div>
+              <!-- Integer type input (shown only for integer questions) -->
+              <div class="integer-input-wrap hidden" id="integerInputWrap">
+                <label>Enter your answer (integer):</label>
+                <input type="number" class="integer-input" id="integerInput" placeholder="0" />
+              </div>
+            </div>
+            <div class="test-nav-btns">
+              <button class="btn-secondary" id="prevBtn">← Previous</button>
+              <button class="btn-clear" id="clearBtn">Clear Response</button>
+              <button class="btn-review" id="reviewBtn">Mark for Review &amp; Next</button>
+              <button class="btn-primary" id="nextBtn">Save &amp; Next →</button>
+            </div>
+            <div class="inline-submit">
+              <button id="submitTestBtnInline">Submit Test</button>
+            </div>
+          </div>
+
+          <!-- Sidebar -->
+          <div class="test-sidebar">
+            <!-- Candidate mini profile -->
+            <div class="sidebar-profile">
+              <div class="sidebar-avatar" id="sidebarAvatar">?</div>
+              <div class="sidebar-profile-info">
+                <strong id="sidebarName">Candidate</strong>
+                <span id="sidebarExam" style="color:var(--fg2)">—</span>
+              </div>
+            </div>
+
+            <!-- 5-colour legend -->
+            <div class="palette-legend">
+              <div class="pal-legend-item"><div class="pal-legend-dot" style="background:#94a3b8"></div> Not Visited</div>
+              <div class="pal-legend-item"><div class="pal-legend-dot" style="background:#ef4444"></div> Not Answered</div>
+              <div class="pal-legend-item"><div class="pal-legend-dot" style="background:#22c55e"></div> Answered</div>
+              <div class="pal-legend-item"><div class="pal-legend-dot" style="background:#8b5cf6"></div> Marked for Review</div>
+              <div class="pal-legend-item"><div class="pal-legend-dot" style="background:#8b5cf6;outline:2px solid #22c55e;border-radius:50%"></div> Answered &amp; Marked</div>
+            </div>
+
+            <h4 style="font-size:0.82rem;margin-bottom:6px;" id="paletteSectionLabel">Questions</h4>
+            <!-- Section summary -->
+            <div class="section-summary" id="sectionSummary"></div>
+            <div id="questionPalette" class="palette-grid"></div>
+            <button class="btn-danger full" id="submitTestBtn">Submit Test</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Result ── -->
+      <div id="testResult" class="hidden" style="display:none result-center">
+        <h2>Test Complete! 🎉</h2>
+        <div class="result-marks" id="resultMarks"></div>
+        <div class="result-score">
+          <div class="score-circle"><span id="resultScore">0%</span></div>
+        </div>
+        <div class="result-breakdown">
+          <div class="result-stat green"><span id="resultCorrect">0</span><small>Correct</small></div>
+          <div class="result-stat red"><span id="resultIncorrect">0</span><small>Incorrect</small></div>
+          <div class="result-stat grey"><span id="resultSkipped">0</span><small>Skipped</small></div>
+        </div>
+        <!-- Per-section breakdown -->
+        <div class="result-section-breakdown" id="resultSectionBreakdown"></div>
+        <div class="result-actions">
+          <button class="btn-secondary" id="reviewAnswersBtn">Review Answers</button>
+          <button class="btn-primary" onclick="navigateTo('dashboard')">Back to Dashboard</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       PAPERS PAGE
+  ═══════════════════════════════════════════ -->
+  <div id="page-papers" class="page hidden" style="display:none">
+    <div class="page-content">
+      <div class="page-header">
+        <h2>Previous Year Papers</h2>
+        <p class="subtitle">Attempt real previous year papers in full CBT format</p>
+      </div>
+      <div class="filter-tabs">
+        <button class="filter-tab active" data-filter="all">All</button>
+        <button class="filter-tab" data-filter="jee">JEE</button>
+        <button class="filter-tab" data-filter="mhtcet">MHT-CET</button>
+      </div>
+      <div id="papersGrid" class="papers-grid">
+        <p class="muted center">Loading papers...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       ANALYTICS PAGE
+  ═══════════════════════════════════════════ -->
+  <div id="page-analytics" class="page hidden" style="display:none">
+    <div class="page-content">
+      <div class="page-header">
+        <h2>Performance Analytics</h2>
+        <p class="subtitle">All data is live — calculated from your actual test attempts</p>
+      </div>
+      <div class="analytics-empty" id="analyticsEmpty">
+        <p>Complete at least one mock test to see your analytics here. All stats are calculated live from your real attempts — no dummy data.</p>
+      </div>
+
+      <div id="analyticsContent" class="hidden" style="display:none">
+        <div class="analytics-grid">
+          <div class="section-card">
+            <h3>JEE — Subject Accuracy</h3>
+            <canvas id="jeeAccuracyChart"></canvas>
+          </div>
+          <div class="section-card">
+            <h3>MHT-CET — Subject Accuracy</h3>
+            <canvas id="mhtAccuracyChart"></canvas>
+          </div>
+          <div class="section-card full-width">
+            <h3>Score Trend</h3>
+            <canvas id="scoreTrendChart"></canvas>
+          </div>
+          <div class="section-card">
+            <h3>Answer Distribution</h3>
+            <div class="donut-wrapper">
+              <canvas id="answerDistChart"></canvas>
+              <div class="donut-legend">
+                <span class="dot green"></span>Correct — <span id="pctCorrect">0%</span><br/>
+                <span class="dot red"></span>Wrong — <span id="pctWrong">0%</span><br/>
+                <span class="dot grey"></span>Skipped — <span id="pctSkipped">0%</span>
+              </div>
+            </div>
+          </div>
+          <div class="section-card full-width">
+            <h3>Activity Heatmap (Last 90 Days)</h3>
+            <div id="heatmap" class="heatmap-wrapper">
+              <div class="heatmap-days">
+                <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+              </div>
+              <div id="heatmapGrid" class="heatmap-grid"></div>
+            </div>
+          </div>
+          <div class="section-card full-width">
+            <h3>Recent Test History</h3>
+            <table class="history-table">
+              <thead>
+                <tr><th>Exam</th><th>Type</th><th>Score</th><th>Accuracy</th><th>Date</th><th>Status</th></tr>
+              </thead>
+              <tbody id="historyTableBody">
+                <tr><td colspan="6" class="muted center">No tests yet</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help Modal -->
+  <div id="helpModal" class="modal hidden" style="display:none">
+    <div class="modal-box">
+      <h3>Help & Instructions</h3>
+      <ul>
+        <li><strong>Dashboard</strong> — See your stats and start a test quickly.</li>
+        <li><strong>Practice</strong> — Browse and filter questions by subject & difficulty. Use +/− to zoom.</li>
+        <li><strong>Mock Test</strong> — Full CBT with section tabs, timer, 5-colour palette, and marking scheme.</li>
+        <li><strong>Papers</strong> — Attempt previous year JEE/MHT-CET papers in full CBT format.</li>
+        <li><strong>Analytics</strong> — Deep dive into your performance after completing tests.</li>
+      </ul>
+      <p class="muted">JEE: +4 correct, −1 wrong. MHT-CET: Maths +2, P&C +1, no negative marking.</p>
+      <button class="btn-primary" onclick="document.getElementById('helpModal').classList.add('hidden')">Close</button>
+    </div>
+  </div>
+
+  <script src="js/supabase.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
