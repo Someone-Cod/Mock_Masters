@@ -248,10 +248,10 @@ function applyTheme(t) {
 // ─── Help ─────────────────────────────────────────────────────────────────────
 function setupHelp() {
   document.getElementById('helpBtn').addEventListener('click', () => {
-    document.getElementById('helpModal').classList.remove('hidden');
+    _show('helpModal');
   });
   document.getElementById('helpModal').addEventListener('click', (e) => {
-    if (e.target === document.getElementById('helpModal')) document.getElementById('helpModal').classList.add('hidden');
+    if (e.target === document.getElementById('helpModal')) _hide('helpModal');
   });
 }
 
@@ -392,9 +392,9 @@ function startTest(questions, exam) {
 
   navigateTo('mocktest');
 
-  document.getElementById('pretestState').classList.add('hidden');
-  document.getElementById('testResult').classList.add('hidden');
-  document.getElementById('activeTest').classList.remove('hidden');
+  _hide('pretestState');
+  _hide('testResult');
+  _show('activeTest');
 
   buildPalette();
   renderQuestion();
@@ -491,8 +491,8 @@ async function submitTest() {
   });
   const score = Math.round(((correct * 4 - incorrect) / (questions.length * 4)) * 100);
 
-  document.getElementById('activeTest').classList.add('hidden');
-  document.getElementById('testResult').classList.remove('hidden');
+  _hide('activeTest');
+  _show('testResult');
   document.getElementById('resultScore').textContent = `${Math.max(0, score)}%`;
   document.getElementById('resultCorrect').textContent = correct;
   document.getElementById('resultIncorrect').textContent = incorrect;
@@ -532,8 +532,8 @@ async function submitTest() {
 }
 
 function reviewAnswers() {
-  document.getElementById('testResult').classList.add('hidden');
-  document.getElementById('activeTest').classList.remove('hidden');
+  _hide('testResult');
+  _show('activeTest');
   testState.currentIdx = 0;
 
   // Render options with correct/wrong highlights
@@ -588,13 +588,13 @@ async function loadPapers() {
 async function loadAnalytics() {
   const tests = await fetchUserTests();
   if (tests.length === 0) {
-    document.getElementById('analyticsEmpty').classList.remove('hidden');
-    document.getElementById('analyticsContent').classList.add('hidden');
+    _show('analyticsEmpty');
+    _hide('analyticsContent');
     return;
   }
 
-  document.getElementById('analyticsEmpty').classList.add('hidden');
-  document.getElementById('analyticsContent').classList.remove('hidden');
+  _hide('analyticsEmpty');
+  _show('analyticsContent');
 
   // Answer distribution
   const totalC = tests.reduce((s,t) => s+(t.correct||0), 0);
@@ -690,12 +690,21 @@ async function fetchUserTests() {
 }
 
 async function fetchPapers() {
-  if (!window._supabase) return DEMO_PAPERS;
+  // Always start with DEMO_PAPERS as base
+  const base = DEMO_PAPERS;
+  if (!window._supabase) return base;
   try {
     const { data, error } = await db.from('papers').select('*');
-    if (error || !data?.length) return DEMO_PAPERS;
-    return data;
-  } catch { return DEMO_PAPERS; }
+    if (error || !data?.length) return base;
+    // Normalise exam field — Supabase might store 'JEE Main' instead of 'jee'
+    const normalised = data.map(p => ({
+      ...p,
+      exam: (p.exam || '').toLowerCase().includes('jee') ? 'jee'
+          : (p.exam || '').toLowerCase().includes('mht') || (p.exam || '').toLowerCase().includes('cet') ? 'mhtcet'
+          : p.exam
+    }));
+    return normalised;
+  } catch { return base; }
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -746,6 +755,9 @@ document.addEventListener('supabase:ready', () => {
 
 function _show(id)  { const el = document.getElementById(id); if(el){ el.style.display='block'; el.classList.remove('hidden'); } }
 function _hide(id)  { const el = document.getElementById(id); if(el){ el.style.display='none';  el.classList.add('hidden'); } }
+// Alias for test panels
+function _showPanel(id) { _show(id); }
+function _hidePanel(id) { _hide(id); }
 
 function showSigninPanel() {
   _show('signinForm');
@@ -1143,10 +1155,10 @@ function _cbt_startTest(questions, exam, cfg) {
   };
 
   navigateTo('mocktest');
-  document.getElementById('pretestState').classList.add('hidden');
-  document.getElementById('testResult').classList.add('hidden');
-  document.getElementById('activeTest').classList.add('hidden');
-  document.getElementById('testInstructions').classList.remove('hidden');
+  _hide('pretestState');
+  _hide('testResult');
+  _hide('activeTest');
+  _show('testInstructions');
 
   // Populate instructions
   const name = currentUser?.user_metadata?.full_name || 'Candidate';
@@ -1188,13 +1200,13 @@ function _cbt_startTest(questions, exam, cfg) {
   agreeChk.onchange = () => startBtn.classList.toggle('ready', agreeChk.checked);
   startBtn.onclick = () => {
     if (!agreeChk.checked) return;
-    document.getElementById('testInstructions').classList.add('hidden');
+    _hide('testInstructions');
     _cbt_beginActiveTest(cfg, name);
   };
 }
 
 function _cbt_beginActiveTest(cfg, name) {
-  document.getElementById('activeTest').classList.remove('hidden');
+  _show('activeTest');
 
   // Candidate info
   const initials = name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
@@ -1461,8 +1473,8 @@ async function _cbt_submitTest() {
     s + sec.mcq * sec.mcqMarks[0] + sec.integer * sec.intMarks[0], 0);
   const scorePct = maxMarks > 0 ? Math.round(Math.max(0, totalMarks) / maxMarks * 100) : 0;
 
-  document.getElementById('activeTest').classList.add('hidden');
-  document.getElementById('testResult').classList.remove('hidden');
+  _hide('activeTest');
+  _show('testResult');
   document.getElementById('resultMarks').textContent =
     Math.max(0, totalMarks) + ' / ' + maxMarks + ' marks';
   document.getElementById('resultScore').textContent = scorePct + '%';
@@ -1500,8 +1512,8 @@ async function _cbt_submitTest() {
   }
 
   document.getElementById('reviewAnswersBtn').onclick = () => {
-    document.getElementById('testResult').classList.add('hidden');
-    document.getElementById('activeTest').classList.remove('hidden');
+    _hide('testResult');
+    _show('activeTest');
     testState.currentIdx = 0;
     cbtCurrentSection = 0;
     _cbt_buildSectionTabs();
