@@ -249,6 +249,27 @@
         <p class="subtitle" id="dashboardSubtitle">Loading your stats...</p>
       </div>
 
+      <!-- Daily Goal Widget -->
+      <div class="section-card daily-goal-card">
+        <div class="daily-goal-header">
+          <div>
+            <h3 style="margin:0">🎯 Your Daily Goal</h3>
+            <p class="muted" id="dailyGoalText" style="margin:4px 0 0">0 / 15 questions today</p>
+          </div>
+          <div class="streak-badge" id="streakBadge">🔥 <span id="streakCount">0</span> day streak</div>
+        </div>
+        <div class="goal-progress-track">
+          <div class="goal-progress-fill" id="goalProgressFill" style="width:0%"></div>
+        </div>
+        <div class="goal-milestones">
+          <span class="milestone" data-pct="0">🚶</span>
+          <span class="milestone" data-pct="25">🏃</span>
+          <span class="milestone" data-pct="50">🏃‍♂️</span>
+          <span class="milestone" data-pct="75">🚴</span>
+          <span class="milestone" data-pct="100">🏁</span>
+        </div>
+      </div>
+
       <!-- Stats Row -->
       <div class="stats-grid">
         <div class="stat-card">
@@ -358,12 +379,29 @@
           </select>
         </div>
         <div class="filter-group">
+          <label>Chapter</label>
+          <select id="filterChapter">
+            <option value="">All Chapters</option>
+          </select>
+        </div>
+        <div class="filter-group">
           <label>Sort</label>
           <select id="filterSort">
             <option value="default">Default</option>
             <option value="easy_first">Easy First</option>
             <option value="hard_first">Hard First</option>
           </select>
+        </div>
+      </div>
+
+      <!-- Chapter-wise PYQ Bank (Marks-style) -->
+      <div class="section-card">
+        <div class="section-header">
+          <h3>📚 Chapter-wise PYQ Bank</h3>
+          <button class="badge" id="toggleChapterView" style="cursor:pointer;border:none">Show Chapters</button>
+        </div>
+        <div id="chapterList" class="chapter-list hidden" style="display:none">
+          <p class="muted">Loading chapters...</p>
         </div>
       </div>
 
@@ -521,7 +559,7 @@
       </div>
 
       <!-- ── Result ── -->
-      <div id="testResult" class="hidden" style="display:none result-center">
+      <div id="testResult" class="hidden result-center" style="display:none">
         <h2>Test Complete! 🎉</h2>
         <div class="result-marks" id="resultMarks"></div>
         <div class="result-score">
@@ -642,6 +680,7 @@
     </div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
   <script src="js/supabase.js"></script>
   <script src="js/app.js"></script>
 </body>

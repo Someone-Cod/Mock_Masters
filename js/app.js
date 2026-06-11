@@ -314,17 +314,35 @@ async function loadDashboard() {
     currentUser?.user_metadata?.full_name
       ? `Hello, ${currentUser.user_metadata.full_name}!`
       : 'Your exam prep hub';
+
+  loadDailyGoal();
 }
 
 // ─── Practice ─────────────────────────────────────────────────────────────────
 async function loadPractice() {
   document.getElementById('questionBank').innerHTML = '<p class="muted center">Loading questions...</p>';
   allQuestions = await fetchQuestions();
+  populateChapterFilter();
+  buildChapterList();
   renderQuestionBank();
 
-  ['filterExam','filterSubject','filterDifficulty','filterSort'].forEach(id => {
-    document.getElementById(id).addEventListener('change', renderQuestionBank);
+  ['filterExam','filterSubject','filterDifficulty','filterSort','filterChapter'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => { renderQuestionBank(); if (id==='filterExam') buildChapterList(); });
   });
+
+  // Chapter view toggle
+  const toggle = document.getElementById('toggleChapterView');
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      const list = document.getElementById('chapterList');
+      const hidden = list.style.display === 'none';
+      list.style.display = hidden ? 'flex' : 'none';
+      list.classList.toggle('hidden', !hidden);
+      toggle.textContent = hidden ? 'Hide Chapters' : 'Show Chapters';
+      if (hidden) buildChapterList();
+    });
+  }
 }
 
 function renderQuestionBank() {
@@ -332,12 +350,14 @@ function renderQuestionBank() {
   const subject = document.getElementById('filterSubject').value;
   const diff = document.getElementById('filterDifficulty').value;
   const sort = document.getElementById('filterSort').value;
+  const chapter = document.getElementById('filterChapter')?.value || '';
 
   let qs = allQuestions.filter(q => {
     if (!q || !q.text) return false; // skip malformed
     if (exam && q.exam !== exam) return false;
     if (subject && q.subject !== subject) return false;
     if (diff && q.difficulty !== diff) return false;
+    if (chapter && q.chapter !== chapter) return false;
     return true;
   });
 
@@ -592,36 +612,129 @@ async function loadAnalytics() {
     _hide('analyticsContent');
     return;
   }
-
   _hide('analyticsEmpty');
   _show('analyticsContent');
 
-  // Answer distribution
-  const totalC = tests.reduce((s,t) => s+(t.correct||0), 0);
-  const totalW = tests.reduce((s,t) => s+(t.incorrect||0), 0);
-  const totalSk = tests.reduce((s,t) => s+(t.skipped||0), 0);
+  // ── Answer distribution totals ──
+  const totalC  = tests.reduce((s,t) => s + (t.correct   || 0), 0);
+  const totalW  = tests.reduce((s,t) => s + (t.incorrect || 0), 0);
+  const totalSk = tests.reduce((s,t) => s + (t.skipped   || 0), 0);
   const totalAll = totalC + totalW + totalSk;
+
   if (totalAll > 0) {
-    document.getElementById('pctCorrect').textContent = `${Math.round(totalC/totalAll*100)}%`;
-    document.getElementById('pctWrong').textContent = `${Math.round(totalW/totalAll*100)}%`;
-    document.getElementById('pctSkipped').textContent = `${Math.round(totalSk/totalAll*100)}%`;
+    document.getElementById('pctCorrect').textContent  = Math.round(totalC  / totalAll * 100) + '%';
+    document.getElementById('pctWrong').textContent    = Math.round(totalW  / totalAll * 100) + '%';
+    document.getElementById('pctSkipped').textContent  = Math.round(totalSk / totalAll * 100) + '%';
   }
 
-  // History table
-  const tbody = document.getElementById('historyTableBody');
-  tbody.innerHTML = tests.map(t => `
-    <tr>
-      <td>${t.exam_name || '—'}</td>
-      <td>Mock</td>
-      <td>${t.score ?? '—'}%</td>
-      <td>${t.total ? Math.round((t.correct/t.total)*100) : '—'}%</td>
-      <td>${formatDate(t.created_at)}</td>
-      <td><span class="q-tag easy">Done</span></td>
-    </tr>
-  `).join('');
+  // ── History table ──
+  document.getElementById('historyTableBody').innerHTML = tests.map(t =>
+    '<tr>' +
+    '<td>' + (t.exam_name || '—') + '</td>' +
+    '<td>Mock</td>' +
+    '<td>' + (t.score ?? '—') + '%</td>' +
+    '<td>' + (t.total ? Math.round((t.correct / t.total) * 100) : '—') + '%</td>' +
+    '<td>' + formatDate(t.created_at) + '</td>' +
+    '<td><span class="q-tag easy">Done</span></td>' +
+    '</tr>'
+  ).join('');
 
-  // Heatmap
+  // ── Heatmap ──
   buildHeatmap(tests);
+
+  // ── Charts — destroy existing before redraw ──
+  ['_chartDist','_chartTrend','_chartJee','_chartMht'].forEach(k => {
+    if (window[k]) { try { window[k].destroy(); } catch(e){} window[k] = null; }
+  });
+
+  // 1. Answer distribution donut
+  const distCtx = document.getElementById('answerDistChart');
+  if (distCtx && window.Chart) {
+    window._chartDist = new Chart(distCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Correct', 'Wrong', 'Skipped'],
+        datasets: [{ data: [totalC, totalW, totalSk], backgroundColor: ['#22c55e','#ef4444','#94a3b8'], borderWidth: 0 }]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    });
+  }
+
+  // 2. Score trend line chart
+  const trendCtx = document.getElementById('scoreTrendChart');
+  if (trendCtx && window.Chart) {
+    const last10 = tests.slice(0, 10).reverse();
+    window._chartTrend = new Chart(trendCtx, {
+      type: 'line',
+      data: {
+        labels: last10.map(t => formatDate(t.created_at)),
+        datasets: [{
+          label: 'Score %',
+          data: last10.map(t => t.score || 0),
+          borderColor: '#4f46e5', backgroundColor: 'rgba(79,70,229,0.1)',
+          tension: 0.4, fill: true, pointRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } },
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+
+  // 3. Subject accuracy bars (from test_attempts subject_breakdown if available)
+  const subjectData = { physics: {c:0,t:0}, chemistry: {c:0,t:0}, mathematics: {c:0,t:0}, biology: {c:0,t:0} };
+  tests.forEach(t => {
+    if (Array.isArray(t.subject_breakdown)) {
+      t.subject_breakdown.forEach(sb => {
+        if (subjectData[sb.subject]) {
+          subjectData[sb.subject].c += (sb.correct || 0);
+          subjectData[sb.subject].t += (sb.total || 0);
+        }
+      });
+    }
+  });
+
+  // JEE chart (Physics, Chemistry, Maths)
+  const jeeCtx = document.getElementById('jeeAccuracyChart');
+  if (jeeCtx && window.Chart) {
+    const jeeSubjects = ['physics','chemistry','mathematics'];
+    const jeeLabels   = ['Physics','Chemistry','Maths'];
+    const jeeData     = jeeSubjects.map(s => subjectData[s].t > 0 ? Math.round(subjectData[s].c / subjectData[s].t * 100) : 0);
+    window._chartJee  = new Chart(jeeCtx, {
+      type: 'bar',
+      data: {
+        labels: jeeLabels,
+        datasets: [{ label: 'Accuracy %', data: jeeData, backgroundColor: ['#4f46e5','#06b6d4','#f59e0b'], borderRadius: 6 }]
+      },
+      options: {
+        responsive: true,
+        scales: { y: { min:0, max:100, ticks: { callback: v => v+'%' } } },
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+
+  // MHT chart (Physics, Chemistry, Maths, Biology)
+  const mhtCtx = document.getElementById('mhtAccuracyChart');
+  if (mhtCtx && window.Chart) {
+    const mhtSubjects = ['physics','chemistry','mathematics','biology'];
+    const mhtLabels   = ['Physics','Chemistry','Maths','Biology'];
+    const mhtData     = mhtSubjects.map(s => subjectData[s].t > 0 ? Math.round(subjectData[s].c / subjectData[s].t * 100) : 0);
+    window._chartMht  = new Chart(mhtCtx, {
+      type: 'bar',
+      data: {
+        labels: mhtLabels,
+        datasets: [{ label: 'Accuracy %', data: mhtData, backgroundColor: ['#4f46e5','#06b6d4','#f59e0b','#22c55e'], borderRadius: 6 }]
+      },
+      options: {
+        responsive: true,
+        scales: { y: { min:0, max:100, ticks: { callback: v => v+'%' } } },
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
 }
 
 function buildHeatmap(tests) {
@@ -656,7 +769,7 @@ async function fetchQuestions() {
     // Normalise Supabase rows — handle varied field names
     const normalised = data.map(q => ({
       id:         q.id,
-      exam:       q.exam || 'jee',
+      exam:       q.exam || q.exam_type || 'jee',
       subject:    q.subject || 'physics',
       difficulty: q.difficulty || 'medium',
       text:       q.text || q.question || q.question_text || '',
@@ -666,6 +779,9 @@ async function fetchQuestions() {
       answer:     typeof q.answer === 'number' ? q.answer : parseInt(q.correct_option || q.correct || 0),
       year:       q.year,
       source:     q.source,
+      chapter:    q.chapter || 'General',
+      image_svg:  q.image_svg  || null,
+      image_url:  q.image_url  || null,
     })).filter(q => q.text && q.options?.length === 4);
 
     // Merge: Supabase questions + PYQ (avoid duplicates by id)
@@ -1346,7 +1462,11 @@ function _cbt_renderQuestion() {
   badge.className = 'q-type-badge ' + (isInt ? 'integer' : 'mcq');
 
   // Question text / image
-  if (q.image_url) {
+  if (q.image_svg) {
+    document.getElementById('questionContent').innerHTML =
+      (q.text ? '<p>' + q.text.replace(/\[STRUCTURE:[^\]]*\]/g,'') + '</p>' : '') +
+      '<div style="margin-top:10px;border-radius:8px;overflow:hidden;border:1px solid var(--bg3);background:#fff">' + q.image_svg + '</div>';
+  } else if (q.image_url) {
     document.getElementById('questionContent').innerHTML =
       (q.text ? '<p>' + q.text + '</p>' : '') +
       '<img src="' + q.image_url + '" style="max-width:100%;border-radius:8px;margin-top:8px;" />';
@@ -1496,12 +1616,22 @@ async function _cbt_submitTest() {
 
   // Save to Supabase
   if (window._supabase && currentUser?.id !== 'demo') {
+    // Build subject breakdown from section results
+    const subject_breakdown = sectionResults.map(r => ({
+      subject: r.name.toLowerCase(),
+      correct: r.correct,
+      incorrect: r.incorrect,
+      skipped: r.skipped,
+      total: r.total,
+      marks: Math.max(0, r.marks)
+    }));
     await db.from('test_attempts').insert({
       user_id: currentUser.id,
       exam_name: (EXAM_CONFIG[testState.exam]?.name || testState.exam || 'Mock Test').toUpperCase(),
       total: questions.length, correct, incorrect, skipped,
       score: scorePct,
-    }).catch(() => {});
+      subject_breakdown,
+    }).catch((e) => { console.warn('Save failed:', e); });
   } else {
     userTests.unshift({
       exam_name: (EXAM_CONFIG[testState.exam]?.name || 'Mock Test'),
@@ -1510,6 +1640,9 @@ async function _cbt_submitTest() {
     });
     try { localStorage.setItem('mm_tests', JSON.stringify(userTests.slice(0, 50))); } catch(e) {}
   }
+
+  // Record daily goal activity
+  recordDailyActivity(questions.length, correct);
 
   document.getElementById('reviewAnswersBtn').onclick = () => {
     _hide('testResult');
@@ -1680,4 +1813,166 @@ document.addEventListener('supabase:ready', () => {
 function startPaperCBT(paperId, exam, title) {
   // Just start the CBT — no alerts
   quickStart(exam);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ADVANCED FEATURES: Daily Goals, Chapters, Weak Detection
+// ═══════════════════════════════════════════════════════════
+
+const DAILY_GOAL = 15;
+
+async function loadDailyGoal() {
+  let solved = 0, streak = 0;
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (window._supabase && currentUser?.id !== 'demo') {
+    try {
+      const { data } = await db.from('daily_activity')
+        .select('*').eq('user_id', currentUser.id)
+        .order('activity_date', { ascending: false }).limit(60);
+      if (data?.length) {
+        const todayRow = data.find(d => d.activity_date === today);
+        solved = todayRow?.questions_solved || 0;
+        // Calculate streak
+        let cur = new Date();
+        for (const row of data) {
+          const ds = cur.toISOString().slice(0,10);
+          if (row.activity_date === ds && row.questions_solved > 0) {
+            streak++; cur.setDate(cur.getDate() - 1);
+          } else break;
+        }
+      }
+    } catch(e) {}
+  } else {
+    try {
+      const local = JSON.parse(localStorage.getItem('mm_daily') || '{}');
+      solved = local[today] || 0;
+      streak = parseInt(localStorage.getItem('mm_streak') || '0');
+    } catch(e) {}
+  }
+
+  const pct = Math.min(100, Math.round(solved / DAILY_GOAL * 100));
+  const fill = document.getElementById('goalProgressFill');
+  const text = document.getElementById('dailyGoalText');
+  const sc   = document.getElementById('streakCount');
+  if (fill) fill.style.width = pct + '%';
+  if (text) text.textContent = `${solved} / ${DAILY_GOAL} questions today`;
+  if (sc)   sc.textContent = streak;
+
+  document.querySelectorAll('.milestone').forEach(m => {
+    if (pct >= parseInt(m.dataset.pct)) m.classList.add('reached');
+    else m.classList.remove('reached');
+  });
+}
+
+async function recordDailyActivity(count, correct) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (window._supabase && currentUser?.id !== 'demo') {
+    try {
+      const { data } = await db.from('daily_activity')
+        .select('*').eq('user_id', currentUser.id).eq('activity_date', today).maybeSingle();
+      if (data) {
+        await db.from('daily_activity').update({
+          questions_solved: (data.questions_solved||0) + count,
+          correct: (data.correct||0) + correct
+        }).eq('id', data.id);
+      } else {
+        await db.from('daily_activity').insert({
+          user_id: currentUser.id, activity_date: today,
+          questions_solved: count, correct, goal: DAILY_GOAL
+        });
+      }
+    } catch(e) {}
+  } else {
+    try {
+      const local = JSON.parse(localStorage.getItem('mm_daily') || '{}');
+      local[today] = (local[today] || 0) + count;
+      localStorage.setItem('mm_daily', JSON.stringify(local));
+    } catch(e) {}
+  }
+}
+
+// ── Chapter-wise PYQ list ──
+function buildChapterList() {
+  const exam = document.getElementById('filterExam')?.value || '';
+  const grouped = {};
+  allQuestions.forEach(q => {
+    if (exam && q.exam !== exam) return;
+    const ch = q.chapter || 'General';
+    if (!grouped[ch]) grouped[ch] = { total: 0, byYear: {}, subject: q.subject };
+    grouped[ch].total++;
+    grouped[ch].byYear[q.year] = (grouped[ch].byYear[q.year] || 0) + 1;
+  });
+
+  // Weak chapters from user history
+  const weakChapters = getWeakChapters();
+
+  const sorted = Object.entries(grouped).sort((a,b) => b[1].total - a[1].total);
+  const subjIcon = { physics:'⚛️', chemistry:'🧪', mathematics:'📐', biology:'🧬' };
+
+  const html = sorted.map(([ch, d]) => {
+    const y2026 = d.byYear[2026] || 0;
+    const y2025 = d.byYear[2025] || 0;
+    const trend = y2026 > y2025 ? '<span class="up">↑</span>' : y2026 < y2025 ? '<span class="down">↓</span>' : '';
+    const weak = weakChapters.includes(ch) ? '<span class="weak-chapter-badge">Weak</span>' : '';
+    return `
+      <div class="chapter-item" onclick="practiceChapter('${ch.replace(/'/g,"")}')">
+        <div class="chapter-item-left">
+          <div class="chapter-icon">${subjIcon[d.subject] || '📖'}</div>
+          <div>
+            <div class="chapter-name">${ch} ${weak}</div>
+            <div class="chapter-sub">${capitalize(d.subject || '')}</div>
+          </div>
+        </div>
+        <div class="chapter-stats">
+          <span class="chapter-year-stat">2026: ${y2026} ${trend}</span>
+          <span class="chapter-year-stat">2025: ${y2025}</span>
+          <span class="chapter-count">${d.total} Qs</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  const el = document.getElementById('chapterList');
+  if (el) el.innerHTML = html || '<p class="muted">No chapters found.</p>';
+}
+
+function practiceChapter(chapter) {
+  // Filter question bank to this chapter
+  const sel = document.getElementById('filterChapter');
+  if (sel) {
+    // Ensure option exists
+    if (![...sel.options].find(o => o.value === chapter)) {
+      const opt = document.createElement('option');
+      opt.value = chapter; opt.textContent = chapter;
+      sel.appendChild(opt);
+    }
+    sel.value = chapter;
+  }
+  renderQuestionBank();
+  document.getElementById('questionBank')?.scrollIntoView({ behavior: 'smooth' });
+}
+
+function populateChapterFilter() {
+  const sel = document.getElementById('filterChapter');
+  if (!sel) return;
+  const chapters = [...new Set(allQuestions.map(q => q.chapter).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All Chapters</option>' +
+    chapters.map(c => `<option value="${c}">${c}</option>`).join('');
+}
+
+// ── Weak chapter detection from test history ──
+function getWeakChapters() {
+  const chapterPerf = {};
+  (userTests || []).forEach(t => {
+    if (Array.isArray(t.chapter_breakdown)) {
+      t.chapter_breakdown.forEach(cb => {
+        if (!chapterPerf[cb.chapter]) chapterPerf[cb.chapter] = { correct: 0, total: 0 };
+        chapterPerf[cb.chapter].correct += cb.correct || 0;
+        chapterPerf[cb.chapter].total += cb.total || 0;
+      });
+    }
+  });
+  return Object.entries(chapterPerf)
+    .filter(([_, p]) => p.total >= 3 && (p.correct / p.total) < 0.5)
+    .map(([ch]) => ch);
 }

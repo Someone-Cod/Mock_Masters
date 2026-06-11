@@ -992,3 +992,32 @@ body.dark .heatmap-cell.active-3 { background: #6366f1; }
   .test-layout { grid-template-columns: 1fr; }
   .nav-links { display: none; }
 }
+
+/* ═══ Daily Goal Widget ═══ */
+.daily-goal-card { background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%); color: #fff; }
+.daily-goal-card h3, .daily-goal-card .muted { color: #fff !important; }
+.daily-goal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+.streak-badge { background: rgba(255,255,255,0.2); padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 14px; }
+.goal-progress-track { height: 10px; background: rgba(255,255,255,0.25); border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
+.goal-progress-fill { height: 100%; background: #fff; border-radius: 10px; transition: width 0.6s ease; }
+.goal-milestones { display: flex; justify-content: space-between; font-size: 18px; }
+.goal-milestones .milestone { opacity: 0.5; transition: opacity 0.3s, transform 0.3s; }
+.goal-milestones .milestone.reached { opacity: 1; transform: scale(1.3); }
+
+/* ═══ Chapter List (Marks-style) ═══ */
+.chapter-list { display: flex; flex-direction: column; gap: 8px; }
+.chapter-item { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; background: var(--bg2); border: 1px solid var(--bg3); border-radius: 12px; cursor: pointer; transition: all 0.2s; }
+.chapter-item:hover { border-color: var(--accent); transform: translateX(4px); }
+.chapter-item-left { display: flex; align-items: center; gap: 12px; }
+.chapter-icon { width: 36px; height: 36px; border-radius: 8px; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.chapter-name { font-weight: 600; font-size: 15px; }
+.chapter-sub { font-size: 12px; color: var(--fg2); margin-top: 2px; }
+.chapter-stats { display: flex; align-items: center; gap: 16px; font-size: 13px; }
+.chapter-year-stat { color: var(--fg2); }
+.chapter-year-stat .up { color: #22c55e; }
+.chapter-year-stat .down { color: #ef4444; }
+.chapter-count { background: var(--bg3); padding: 4px 10px; border-radius: 12px; font-weight: 600; }
+
+/* ═══ Weak Chapter Badge ═══ */
+.weak-chapter-badge { background: #fee2e2; color: #c00; padding: 3px 8px; border-radius: 8px; font-size: 11px; font-weight: 600; }
+.strong-chapter-badge { background: #dcfce7; color: #16a34a; padding: 3px 8px; border-radius: 8px; font-size: 11px; font-weight: 600; }
