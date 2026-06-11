@@ -784,8 +784,20 @@ async function fetchQuestions() {
 
   if (!window._supabase) return [...DEMO_QUESTIONS, ...pyq];
   try {
-    const { data, error } = await db.from('questions').select('*');
-    if (error || !data?.length) return [...DEMO_QUESTIONS, ...pyq];
+    // Supabase caps each request at 1000 rows — paginate to get everything
+    let data = [];
+    const PAGE = 1000;
+    for (let from = 0; from < 20000; from += PAGE) {
+      const { data: chunk, error } = await db.from('questions')
+        .select('*')
+        .eq('status', 'published')
+        .range(from, from + PAGE - 1);
+      if (error) break;
+      if (!chunk || chunk.length === 0) break;
+      data = data.concat(chunk);
+      if (chunk.length < PAGE) break;
+    }
+    if (!data.length) return [...DEMO_QUESTIONS, ...pyq];
 
     // Normalise Supabase rows — handle varied field names
     const _ansToIdx = (v) => {
