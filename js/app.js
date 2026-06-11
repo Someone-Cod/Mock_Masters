@@ -371,16 +371,37 @@ function renderQuestionBank() {
     _applyZoom(); return;
   }
 
-  document.getElementById('questionBank').innerHTML = qs.map((q, i) => `
+  const bankHtml = qs.map((q, i) => `
     <div class="q-card">
       <div class="q-card-header">
         <span class="q-tag ${q.difficulty || 'medium'}">${q.difficulty || 'medium'}</span>
-        <span class="q-subject">${capitalize(q.subject || 'general')} · ${(q.exam || '').toUpperCase()}</span>
+        <span class="q-subject">${capitalize(q.subject || 'general')} · ${(q.exam || '').toUpperCase()}${q.chapter ? ' · ' + q.chapter : ''}</span>
       </div>
       <div class="q-text">${i + 1}. ${q.text || 'Question text unavailable'}</div>
+      ${q.image_svg ? '<div style="margin:8px 0;background:#fff;border-radius:8px;padding:4px;max-width:380px">' + q.image_svg + '</div>' : ''}
+      <div class="q-options-preview">
+        ${(q.options||[]).map((opt,oi) => `<div class="q-opt-line">${String.fromCharCode(65+oi)}. ${opt}</div>`).join('')}
+      </div>
     </div>
   `).join('');
+
+  const header = qs.length > 0
+    ? `<div class="bank-actions"><span class="muted">${qs.length} questions</span>
+         <button class="btn-primary" onclick="solveFiltered()">▶ Solve These (${Math.min(30,qs.length)} Q)</button></div>`
+    : '<p class="muted center">No questions match these filters.</p>';
+
+  document.getElementById('questionBank').innerHTML = header + bankHtml;
+  window._filteredQuestions = qs;
   _applyZoom();
+}
+
+// Start a test from the currently filtered questions
+function solveFiltered() {
+  const qs = window._filteredQuestions || [];
+  if (!qs.length) return;
+  const exam = document.getElementById('filterExam').value || 'jee';
+  const selected = shuffleArray(qs.slice()).slice(0, Math.min(30, qs.length));
+  startTest(selected, exam);
 }
 
 function diffOrder(d) { return d === 'easy' ? 0 : d === 'medium' ? 1 : 2; }
@@ -767,22 +788,32 @@ async function fetchQuestions() {
     if (error || !data?.length) return [...DEMO_QUESTIONS, ...pyq];
 
     // Normalise Supabase rows — handle varied field names
+    const _ansToIdx = (v) => {
+      if (typeof v === 'number') return v;
+      const s = String(v ?? '').trim().toUpperCase();
+      if (s === 'A') return 0;
+      if (s === 'B') return 1;
+      if (s === 'C') return 2;
+      if (s === 'D') return 3;
+      const n = parseInt(s, 10);
+      return isNaN(n) ? 0 : n;
+    };
     const normalised = data.map(q => ({
       id:         q.id,
-      exam:       q.exam || q.exam_type || 'jee',
-      subject:    q.subject || 'physics',
-      difficulty: q.difficulty || 'medium',
+      exam:       String(q.exam || q.exam_type || 'jee').toLowerCase().replace('-',''),
+      subject:    String(q.subject || 'physics').toLowerCase(),
+      difficulty: String(q.difficulty || 'medium').toLowerCase(),
       text:       q.text || q.question || q.question_text || '',
       options:    Array.isArray(q.options)
                     ? q.options
-                    : [q.option_a || q.a, q.option_b || q.b, q.option_c || q.c, q.option_d || q.d].filter(Boolean),
-      answer:     typeof q.answer === 'number' ? q.answer : parseInt(q.correct_option || q.correct || 0),
+                    : [q.option_a ?? q.a ?? '', q.option_b ?? q.b ?? '', q.option_c ?? q.c ?? '', q.option_d ?? q.d ?? ''],
+      answer:     _ansToIdx(q.answer ?? q.correct_option ?? q.correct),
       year:       q.year,
       source:     q.source,
       chapter:    q.chapter || 'General',
       image_svg:  q.image_svg  || null,
       image_url:  q.image_url  || null,
-    })).filter(q => q.text && q.options?.length === 4);
+    })).filter(q => q.text && q.options.length === 4 && q.options.some(o => o && o.trim()));
 
     // Merge: Supabase questions + PYQ (avoid duplicates by id)
     const supabaseIds = new Set(normalised.map(q => q.id));
@@ -792,17 +823,26 @@ async function fetchQuestions() {
 }
 
 async function fetchUserTests() {
-  if (!window._supabase || currentUser?.id === 'demo') {
-    try { return JSON.parse(localStorage.getItem('mm_tests') || '[]'); } catch { return []; }
+  // Always load local copy first
+  let localTests = [];
+  try { localTests = JSON.parse(localStorage.getItem('mm_tests') || '[]'); } catch { localTests = []; }
+
+  if (!window._supabase || !currentUser?.id || currentUser.id === 'demo') {
+    return localTests;
   }
   try {
     const { data, error } = await db.from('test_attempts')
       .select('*')
       .eq('user_id', currentUser.id)
       .order('created_at', { ascending: false });
-    if (error) return [];
-    return data || [];
-  } catch { return []; }
+    if (error || !data || data.length === 0) {
+      // Supabase empty or failed — fall back to local so analytics still shows
+      return localTests;
+    }
+    return data;
+  } catch {
+    return localTests;
+  }
 }
 
 async function fetchPapers() {
@@ -920,7 +960,12 @@ function _setZoom(val) {
 
 function _applyZoom() {
   const bank = document.getElementById('questionBank');
-  if (bank) bank.style.fontSize = _practiceZoom + '%';
+  if (bank) {
+    // Scale the actual text elements, not just container font-size
+    bank.querySelectorAll('.q-text, .q-opt-line').forEach(el => {
+      el.style.fontSize = (_practiceZoom / 100 * 15) + 'px';
+    });
+  }
   const lbl = document.getElementById('zoomLevel');
   if (lbl) lbl.textContent = _practiceZoom + '%';
   const zOut = document.getElementById('zoomOut');
@@ -1614,32 +1659,50 @@ async function _cbt_submitTest() {
       '<small style="color:var(--fg2)">' + r.correct + '✓ ' + r.incorrect + '✗ ' + r.skipped + ' skip</small></div>'
     ).join('');
 
-  // Save to Supabase
-  if (window._supabase && currentUser?.id !== 'demo') {
-    // Build subject breakdown from section results
-    const subject_breakdown = sectionResults.map(r => ({
-      subject: r.name.toLowerCase(),
-      correct: r.correct,
-      incorrect: r.incorrect,
-      skipped: r.skipped,
-      total: r.total,
-      marks: Math.max(0, r.marks)
-    }));
-    await db.from('test_attempts').insert({
-      user_id: currentUser.id,
-      exam_name: (EXAM_CONFIG[testState.exam]?.name || testState.exam || 'Mock Test').toUpperCase(),
-      total: questions.length, correct, incorrect, skipped,
-      score: scorePct,
-      subject_breakdown,
-    }).catch((e) => { console.warn('Save failed:', e); });
-  } else {
-    userTests.unshift({
-      exam_name: (EXAM_CONFIG[testState.exam]?.name || 'Mock Test'),
-      total: questions.length, correct, incorrect, skipped, score: scorePct,
-      created_at: new Date().toISOString(),
-    });
-    try { localStorage.setItem('mm_tests', JSON.stringify(userTests.slice(0, 50))); } catch(e) {}
+  // Save to Supabase AND localStorage (bulletproof — analytics works either way)
+  const attemptRecord = {
+    exam_name: (EXAM_CONFIG[testState.exam]?.name || testState.exam || 'Mock Test').toUpperCase(),
+    total: Math.max(0, questions.length | 0),
+    correct: Math.max(0, correct | 0),
+    incorrect: Math.max(0, incorrect | 0),
+    skipped: Math.max(0, skipped | 0),
+    score: Math.max(0, Math.min(100, Math.round(scorePct))),
+    created_at: new Date().toISOString(),
+  };
+  const subject_breakdown = sectionResults.map(r => ({
+    subject: r.name.toLowerCase(),
+    correct: Math.max(0, r.correct | 0),
+    incorrect: Math.max(0, r.incorrect | 0),
+    skipped: Math.max(0, r.skipped | 0),
+    total: Math.max(0, r.total | 0),
+    marks: Math.max(0, r.marks),
+  }));
+
+  // Always save locally first so analytics never shows empty
+  try {
+    const local = JSON.parse(localStorage.getItem('mm_tests') || '[]');
+    local.unshift({ ...attemptRecord, subject_breakdown });
+    localStorage.setItem('mm_tests', JSON.stringify(local.slice(0, 50)));
+  } catch(e) {}
+
+  // Then try Supabase for logged-in users
+  if (window._supabase && currentUser?.id && currentUser.id !== 'demo') {
+    try {
+      const { error } = await db.from('test_attempts').insert({
+        user_id: currentUser.id,
+        ...attemptRecord,
+        subject_breakdown,
+      });
+      if (error) {
+        console.error('❌ Test save to Supabase failed:', error.message, error.details, error.hint);
+      } else {
+        console.log('✅ Test saved to Supabase');
+      }
+    } catch(e) {
+      console.error('❌ Test save threw:', e);
+    }
   }
+  userTests = (() => { try { return JSON.parse(localStorage.getItem('mm_tests')||'[]'); } catch { return []; } })();
 
   // Record daily goal activity
   recordDailyActivity(questions.length, correct);
@@ -1811,8 +1874,13 @@ document.addEventListener('supabase:ready', () => {
 
 // ─── Papers: Start CBT from paper card ────────────────────────────────────────
 function startPaperCBT(paperId, exam, title) {
-  // Just start the CBT — no alerts
-  quickStart(exam);
+  // Normalise exam value (papers store 'JEE', 'MHT-CET'; config keys are lowercase)
+  const examKey = String(exam || 'jee').toLowerCase().replace(/[^a-z]/g, '');
+  const mapped = examKey.includes('mht') || examKey.includes('cet') ? 'mhtcet'
+               : examKey.includes('neet') ? 'neet'
+               : examKey.includes('jee') ? 'jee'
+               : 'jee';
+  quickStart(mapped);
 }
 
 // ═══════════════════════════════════════════════════════════

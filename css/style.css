@@ -1021,3 +1021,9 @@ body.dark .heatmap-cell.active-3 { background: #6366f1; }
 /* ═══ Weak Chapter Badge ═══ */
 .weak-chapter-badge { background: #fee2e2; color: #c00; padding: 3px 8px; border-radius: 8px; font-size: 11px; font-weight: 600; }
 .strong-chapter-badge { background: #dcfce7; color: #16a34a; padding: 3px 8px; border-radius: 8px; font-size: 11px; font-weight: 600; }
+
+/* Question bank inline options + solve button */
+.bank-actions { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding:10px 14px; background:var(--bg2); border-radius:10px; }
+.q-options-preview { margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.q-opt-line { font-size:13px; color:var(--fg2); padding:6px 10px; background:var(--bg2); border-radius:6px; }
+@media (max-width:600px){ .q-options-preview { grid-template-columns:1fr; } }
