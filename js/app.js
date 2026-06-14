@@ -328,7 +328,12 @@ async function loadPractice() {
 
   ['filterExam','filterSubject','filterDifficulty','filterSort','filterChapter'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.addEventListener('change', () => { renderQuestionBank(); if (id==='filterExam') buildChapterList(); });
+    if (el) el.addEventListener('change', () => {
+      // When subject/exam changes, refresh the topic dropdown to match
+      if (id === 'filterSubject' || id === 'filterExam') populateChapterFilter();
+      renderQuestionBank();
+      if (id === 'filterExam') buildChapterList();
+    });
   });
 
   // Chapter view toggle
@@ -1265,9 +1270,23 @@ window.quickStart = function(exam) {
   let allSelected = [];
 
   cfg.sections.forEach(sec => {
-    const secPool = sec.subject
-      ? pool.filter(q => q.exam === exam && q.subject === sec.subject)
-      : pool.filter(q => q.exam === exam || exam === 'generic');
+    // Match subject (case-insensitive). Prefer this exam's own questions,
+    // then fall back to ANY exam's questions of the same subject (CET often
+    // has too few of its own — JEE-level questions of the same subject are
+    // valid practice), and only then to demos.
+    const wantSubj = (sec.subject || '').toLowerCase();
+    const sameSubject = q => (q.subject || '').toLowerCase() === wantSubj;
+
+    let secPool = pool.filter(q => sameSubject(q) && (q.exam === exam));
+    if (secPool.length < (sec.mcq + sec.integer)) {
+      // top up from same subject, any exam (deduped)
+      const have = new Set(secPool.map(q => q.id));
+      const extra = pool.filter(q => sameSubject(q) && !have.has(q.id));
+      secPool = secPool.concat(extra);
+    }
+    if (!sec.subject) {
+      secPool = pool.filter(q => q.exam === exam || exam === 'generic');
+    }
 
     const shuffled = shuffleArray(secPool);
     const needed = sec.mcq + sec.integer;
@@ -1495,6 +1514,41 @@ function _cbt_updateSectionSummary() {
 }
 
 // ─── Question render ───────────────────────────────────────────────────────────
+// ─── Math/symbol rendering (KaTeX) ────────────────────────────────────────────
+// Renders LaTeX like $x^2$, \frac{a}{b}, \alpha. Falls back to escaped text
+// if KaTeX isn't loaded or the expression is invalid.
+function _escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function _renderMath(str) {
+  if (str == null) return '';
+  str = String(str);
+  if (typeof katex === 'undefined') return _escapeHtml(str);
+  // Replace $...$ inline math segments; escape the rest as plain text
+  const hasDollar = str.indexOf('$') !== -1;
+  const looksLatex = /\\[a-zA-Z]+|\^|_\{|\\frac|\\sqrt/.test(str);
+  if (!hasDollar && !looksLatex) return _escapeHtml(str);
+  try {
+    if (hasDollar) {
+      // split on $...$ and render each math part
+      let out = '', parts = str.split('$');
+      for (let i = 0; i < parts.length; i++) {
+        if (i % 2 === 1) {
+          out += katex.renderToString(parts[i], { throwOnError: false, displayMode: false });
+        } else {
+          out += _escapeHtml(parts[i]);
+        }
+      }
+      return out;
+    }
+    // whole string is latex-ish
+    return katex.renderToString(str, { throwOnError: false, displayMode: false });
+  } catch (e) {
+    return _escapeHtml(str);
+  }
+}
+
 function _cbt_renderQuestion() {
   const { questions, currentIdx, answers, reviews } = testState;
   const q = questions[currentIdx];
@@ -1521,14 +1575,14 @@ function _cbt_renderQuestion() {
   // Question text / image
   if (q.image_svg) {
     document.getElementById('questionContent').innerHTML =
-      (q.text ? '<p>' + q.text.replace(/\[STRUCTURE:[^\]]*\]/g,'') + '</p>' : '') +
+      (q.text ? '<p>' + _renderMath(q.text.replace(/\[STRUCTURE:[^\]]*\]/g,'')) + '</p>' : '') +
       '<div style="margin-top:10px;border-radius:8px;overflow:hidden;border:1px solid var(--bg3);background:#fff">' + q.image_svg + '</div>';
   } else if (q.image_url) {
     document.getElementById('questionContent').innerHTML =
-      (q.text ? '<p>' + q.text + '</p>' : '') +
+      (q.text ? '<p>' + _renderMath(q.text) + '</p>' : '') +
       '<img src="' + q.image_url + '" style="max-width:100%;border-radius:8px;margin-top:8px;" />';
   } else {
-    document.getElementById('questionContent').textContent = q.text;
+    document.getElementById('questionContent').innerHTML = _renderMath(q.text);
   }
 
   // Options or integer input
@@ -1536,17 +1590,38 @@ function _cbt_renderQuestion() {
   const intWrap  = document.getElementById('integerInputWrap');
   const intInput = document.getElementById('integerInput');
 
+  const review = testState.reviewMode === true;
+
   if (isInt) {
     optsCont.innerHTML = '';
     intWrap.classList.remove('hidden');
     intInput.value = answers[currentIdx] !== null ? answers[currentIdx] : '';
+    intInput.disabled = review;
+    if (review) {
+      const correctVal = q.answer;
+      const userVal = answers[currentIdx];
+      optsCont.innerHTML = '<div style="margin-top:8px;font-size:14px;">' +
+        (userVal == correctVal
+          ? '<span style="color:#16a34a">✓ Correct</span>'
+          : '<span style="color:#dc2626">✗ Your answer: ' + (userVal ?? '—') +
+            ' · Correct: ' + correctVal + '</span>') + '</div>';
+    }
   } else {
     intWrap.classList.add('hidden');
     const labels = ['A','B','C','D'];
-    optsCont.innerHTML = (q.options || []).map((opt, i) =>
-      '<button class="option-btn ' + (answers[currentIdx] === i ? 'selected' : '') +
-      '" onclick="cbtSelectOption(' + i + ')"><span class="option-label">' + labels[i] + '</span>' + opt + '</button>'
-    ).join('');
+    optsCont.innerHTML = (q.options || []).map((opt, i) => {
+      let cls = 'option-btn';
+      let click = 'onclick="cbtSelectOption(' + i + ')"';
+      if (review) {
+        click = 'disabled style="cursor:default"';   // lock in review
+        if (i === q.answer) cls += ' opt-correct';
+        else if (answers[currentIdx] === i) cls += ' opt-wrong';
+      } else if (answers[currentIdx] === i) {
+        cls += ' selected';
+      }
+      return '<button class="' + cls + '" ' + click + '><span class="option-label">' +
+        labels[i] + '</span>' + _renderMath(opt) + '</button>';
+    }).join('');
   }
 
   // Review btn highlight
@@ -1722,6 +1797,7 @@ async function _cbt_submitTest() {
   document.getElementById('reviewAnswersBtn').onclick = () => {
     _hide('testResult');
     _show('activeTest');
+    testState.reviewMode = true;   // lock answers, show correct/wrong
     testState.currentIdx = 0;
     cbtCurrentSection = 0;
     _cbt_buildSectionTabs();
@@ -1885,14 +1961,79 @@ document.addEventListener('supabase:ready', () => {
 });
 
 // ─── Papers: Start CBT from paper card ────────────────────────────────────────
-function startPaperCBT(paperId, exam, title) {
-  // Normalise exam value (papers store 'JEE', 'MHT-CET'; config keys are lowercase)
+async function startPaperCBT(paperId, exam, title) {
   const examKey = String(exam || 'jee').toLowerCase().replace(/[^a-z]/g, '');
   const mapped = examKey.includes('mht') || examKey.includes('cet') ? 'mhtcet'
                : examKey.includes('neet') ? 'neet'
-               : examKey.includes('jee') ? 'jee'
                : 'jee';
-  quickStart(mapped);
+
+  // Load THIS paper's own questions (linked by paper_id) so each paper is distinct
+  let paperQs = [];
+  if (window._supabase && paperId) {
+    try {
+      const { data } = await db.from('questions')
+        .select('*').eq('paper_id', paperId).eq('status', 'published');
+      if (data && data.length) {
+        const _ansToIdx = (v) => {
+          const s = String(v ?? '').trim().toUpperCase();
+          return s === 'A' ? 0 : s === 'B' ? 1 : s === 'C' ? 2 : s === 'D' ? 3 : 0;
+        };
+        paperQs = data.map(q => ({
+          id: q.id,
+          exam: mapped,
+          subject: String(q.subject || 'physics').toLowerCase(),
+          difficulty: (q.difficulty || 'medium').toLowerCase(),
+          text: q.question_text || '',
+          options: [q.option_a, q.option_b, q.option_c, q.option_d],
+          answer: _ansToIdx(q.correct_option),
+          chapter: q.chapter || 'General',
+          image_svg: q.image_svg || null,
+          image_url: q.image_url || null,
+        })).filter(q => q.text && q.options.every(o => o && String(o).trim()));
+      }
+    } catch (e) { console.warn('paper load failed', e); }
+  }
+
+  if (paperQs.length === 0) {
+    // fallback: generic exam test
+    quickStart(mapped);
+    return;
+  }
+
+  // Build one section per subject from THIS paper's questions
+  _startTestFromPool(paperQs, mapped, title);
+}
+
+// Build & start a CBT directly from a fixed pool of questions (used by papers)
+function _startTestFromPool(poolQs, exam, title) {
+  const cfg = EXAM_CONFIG[exam] || EXAM_CONFIG.jee;
+  const bySubject = {};
+  poolQs.forEach(q => { (bySubject[q.subject] = bySubject[q.subject] || []).push(q); });
+
+  const sectionsData = [];
+  let allSelected = [];
+  (cfg.sections || []).forEach(sec => {
+    const subjQs = bySubject[(sec.subject || '').toLowerCase()] || [];
+    if (subjQs.length === 0) return;
+    const startIdx = allSelected.length;
+    subjQs.forEach((q, i) => allSelected.push({ ...q, _isInteger: false }));
+    sectionsData.push({
+      name: sec.name, subject: sec.subject, startIdx,
+      endIdx: allSelected.length - 1,
+      mcq: subjQs.length, integer: 0,
+      mcqMarks: sec.mcqMarks, intMarks: sec.intMarks,
+      count: subjQs.length,
+    });
+  });
+
+  if (allSelected.length === 0) { quickStart(exam); return; }
+
+  cbtSections = sectionsData;
+  cbtCurrentSection = 0;
+  cbtVisited = new Array(allSelected.length).fill(false);
+  cbtQTypes = allSelected.map(() => 'mcq');
+  mhtTimerGroup = 0;
+  _cbt_startTest(allSelected, exam, cfg);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2035,9 +2176,21 @@ function practiceChapter(chapter) {
 function populateChapterFilter() {
   const sel = document.getElementById('filterChapter');
   if (!sel) return;
-  const chapters = [...new Set(allQuestions.map(q => q.chapter).filter(Boolean))].sort();
-  sel.innerHTML = '<option value="">All Chapters</option>' +
+  const subject = (document.getElementById('filterSubject')?.value || '').toLowerCase();
+  const exam = (document.getElementById('filterExam')?.value || '').toLowerCase();
+  // Only chapters that belong to the selected subject (and exam, if chosen)
+  const chapters = [...new Set(
+    allQuestions
+      .filter(q => (!subject || (q.subject || '').toLowerCase() === subject))
+      .filter(q => (!exam || (q.exam || '').toLowerCase() === exam))
+      .map(q => q.chapter)
+      .filter(Boolean)
+  )].sort();
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All Topics</option>' +
     chapters.map(c => `<option value="${c}">${c}</option>`).join('');
+  // keep selection if still valid
+  if (chapters.includes(current)) sel.value = current;
 }
 
 // ── Weak chapter detection from test history ──

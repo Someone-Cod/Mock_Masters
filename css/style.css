@@ -1027,3 +1027,10 @@ body.dark .heatmap-cell.active-3 { background: #6366f1; }
 .q-options-preview { margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:6px; }
 .q-opt-line { font-size:13px; color:var(--fg2); padding:6px 10px; background:var(--bg2); border-radius:6px; }
 @media (max-width:600px){ .q-options-preview { grid-template-columns:1fr; } }
+
+/* Review mode — show correct/wrong answers (locked) */
+.option-btn.opt-correct { background:#dcfce7 !important; border-color:#16a34a !important; color:#14532d !important; }
+.option-btn.opt-wrong   { background:#fee2e2 !important; border-color:#dc2626 !important; color:#7f1d1d !important; }
+.option-btn:disabled    { cursor:default; opacity:1; }
+.option-btn.opt-correct .option-label { background:#16a34a; color:#fff; }
+.option-btn.opt-wrong   .option-label { background:#dc2626; color:#fff; }
