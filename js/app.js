@@ -336,7 +336,8 @@ async function loadPractice() {
         populateChapterFilter();
       }
       renderQuestionBank();
-      if (id === 'filterExam') buildChapterList();
+      // Chapter-wise PYQ bank depends on exam, subject, and class — rebuild on any of those
+      if (id === 'filterExam' || id === 'filterSubject' || id === 'filterStandard') buildChapterList();
     });
   });
 
@@ -2146,13 +2147,19 @@ async function recordDailyActivity(count, correct) {
 // ── Chapter-wise PYQ list ──
 function buildChapterList() {
   const exam = document.getElementById('filterExam')?.value || '';
+  const subject = document.getElementById('filterSubject')?.value || '';
+  const standard = document.getElementById('filterStandard')?.value || '';
   const grouped = {};
   allQuestions.forEach(q => {
     if (exam && q.exam !== exam) return;
+    if (subject && q.subject !== subject) return;
+    if (standard && q.standard !== standard && q.standard !== 'mixed') return;
     const ch = q.chapter || 'General';
-    if (!grouped[ch]) grouped[ch] = { total: 0, byYear: {}, subject: q.subject };
+    if (!grouped[ch]) grouped[ch] = { total: 0, byYear: {}, subject: q.subject, c11: 0, c12: 0 };
     grouped[ch].total++;
     grouped[ch].byYear[q.year] = (grouped[ch].byYear[q.year] || 0) + 1;
+    if (q.standard === '11') grouped[ch].c11++;
+    else if (q.standard === '12') grouped[ch].c12++;
   });
 
   // Weak chapters from user history
@@ -2166,12 +2173,17 @@ function buildChapterList() {
     const y2025 = d.byYear[2025] || 0;
     const trend = y2026 > y2025 ? '<span class="up">↑</span>' : y2026 < y2025 ? '<span class="down">↓</span>' : '';
     const weak = weakChapters.includes(ch) ? '<span class="weak-chapter-badge">Weak</span>' : '';
+    // Class badge: which class this chapter mostly belongs to
+    let classBadge = '';
+    if (d.c11 > 0 && d.c12 === 0) classBadge = '<span class="class-badge c11">Class 11</span>';
+    else if (d.c12 > 0 && d.c11 === 0) classBadge = '<span class="class-badge c12">Class 12</span>';
+    else if (d.c11 > 0 && d.c12 > 0) classBadge = '<span class="class-badge mixed">11 & 12</span>';
     return `
       <div class="chapter-item" onclick="practiceChapter('${ch.replace(/'/g,"")}')">
         <div class="chapter-item-left">
           <div class="chapter-icon">${subjIcon[d.subject] || '📖'}</div>
           <div>
-            <div class="chapter-name">${ch} ${weak}</div>
+            <div class="chapter-name">${ch} ${weak} ${classBadge}</div>
             <div class="chapter-sub">${capitalize(d.subject || '')}</div>
           </div>
         </div>

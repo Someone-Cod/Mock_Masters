@@ -1034,3 +1034,9 @@ body.dark .heatmap-cell.active-3 { background: #6366f1; }
 .option-btn:disabled    { cursor:default; opacity:1; }
 .option-btn.opt-correct .option-label { background:#16a34a; color:#fff; }
 .option-btn.opt-wrong   .option-label { background:#dc2626; color:#fff; }
+
+/* Class badges on chapter-wise PYQ bank */
+.class-badge { font-size:10px; font-weight:600; padding:2px 7px; border-radius:10px; margin-left:6px; white-space:nowrap; }
+.class-badge.c11 { background:#dbeafe; color:#1e40af; }
+.class-badge.c12 { background:#ede9fe; color:#6d28d9; }
+.class-badge.mixed { background:#f1f5f9; color:#475569; }
