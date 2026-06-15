@@ -326,7 +326,7 @@ async function loadPractice() {
   buildChapterList();
   renderQuestionBank();
 
-  ['filterExam','filterSubject','filterDifficulty','filterSort','filterChapter'].forEach(id => {
+  ['filterExam','filterSubject','filterDifficulty','filterSort','filterChapter','filterStandard'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', () => {
       // When subject/exam changes, reset the chapter filter (old chapter may not belong to new subject)
@@ -360,6 +360,7 @@ function renderQuestionBank() {
   const diff = document.getElementById('filterDifficulty').value;
   const sort = document.getElementById('filterSort').value;
   const chapter = document.getElementById('filterChapter')?.value || '';
+  const standard = document.getElementById('filterStandard')?.value || '';
 
   let qs = allQuestions.filter(q => {
     if (!q || !q.text) return false; // skip malformed
@@ -367,6 +368,8 @@ function renderQuestionBank() {
     if (subject && q.subject !== subject) return false;
     if (diff && q.difficulty !== diff) return false;
     if (chapter && q.chapter !== chapter) return false;
+    // Class filter: when 11 or 12 selected, include that standard + 'mixed' (unclassified are valid for both)
+    if (standard && q.standard !== standard && q.standard !== 'mixed') return false;
     return true;
   });
 
@@ -834,6 +837,7 @@ async function fetchQuestions() {
       year:       q.year,
       source:     q.source,
       chapter:    q.chapter || 'General',
+      standard:   q.standard || 'mixed',
       image_svg:  q.image_svg  || null,
       image_url:  q.image_url  || null,
     })).filter(q => q.text && q.options.length === 4 && q.options.some(o => o && o.trim()));
