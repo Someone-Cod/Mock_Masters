@@ -553,17 +553,19 @@ async function submitTest() {
   document.querySelector('.score-circle').style.background =
     `conic-gradient(var(--accent) ${pct}%, var(--bg3) ${pct}%)`;
 
-  // Save to Supabase
-  if (window._supabase && currentUser?.id !== 'demo') {
-    await db.from('test_attempts').insert({
-      user_id: currentUser.id,
-      exam_name: testState.exam?.toUpperCase() || 'Mock Test',
-      total: questions.length,
-      correct,
-      incorrect,
-      skipped,
-      score: Math.max(0, score),
-    });
+  // Save to Supabase (only with a valid logged-in user)
+  if (window._supabase && currentUser && currentUser.id && currentUser.id !== 'demo') {
+    try {
+      await db.from('test_attempts').insert({
+        user_id: currentUser.id,
+        exam_name: testState.exam?.toUpperCase() || 'Mock Test',
+        total: questions.length,
+        correct,
+        incorrect,
+        skipped,
+        score: Math.max(0, Math.min(100, Math.round(score))),
+      });
+    } catch (e) { console.error('save failed', e); }
   } else {
     // Save to local demo history
     userTests.unshift({
@@ -2070,7 +2072,7 @@ async function loadDailyGoal() {
   let solved = 0, streak = 0;
   const today = new Date().toISOString().slice(0, 10);
 
-  if (window._supabase && currentUser?.id !== 'demo') {
+  if (window._supabase && currentUser && currentUser.id && currentUser.id !== 'demo') {
     try {
       const { data } = await db.from('daily_activity')
         .select('*').eq('user_id', currentUser.id)
@@ -2112,7 +2114,7 @@ async function loadDailyGoal() {
 
 async function recordDailyActivity(count, correct) {
   const today = new Date().toISOString().slice(0, 10);
-  if (window._supabase && currentUser?.id !== 'demo') {
+  if (window._supabase && currentUser && currentUser.id && currentUser.id !== 'demo') {
     try {
       const { data } = await db.from('daily_activity')
         .select('*').eq('user_id', currentUser.id).eq('activity_date', today).maybeSingle();
