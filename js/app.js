@@ -329,8 +329,12 @@ async function loadPractice() {
   ['filterExam','filterSubject','filterDifficulty','filterSort','filterChapter'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', () => {
-      // When subject/exam changes, refresh the topic dropdown to match
-      if (id === 'filterSubject' || id === 'filterExam') populateChapterFilter();
+      // When subject/exam changes, reset the chapter filter (old chapter may not belong to new subject)
+      if (id === 'filterSubject' || id === 'filterExam') {
+        const ch = document.getElementById('filterChapter');
+        if (ch) ch.value = '';
+        populateChapterFilter();
+      }
       renderQuestionBank();
       if (id === 'filterExam') buildChapterList();
     });
@@ -867,15 +871,23 @@ async function fetchPapers() {
   const base = DEMO_PAPERS;
   if (!window._supabase) return base;
   try {
-    const { data, error } = await db.from('papers').select('*');
+    // Only fetch PUBLIC papers (empty placeholder papers are hidden)
+    const { data, error } = await db.from('papers')
+      .select('*')
+      .eq('is_public', true);
     if (error || !data?.length) return base;
-    // Normalise exam field — Supabase might store 'JEE Main' instead of 'jee'
-    const normalised = data.map(p => ({
-      ...p,
-      exam: (p.exam || '').toLowerCase().includes('jee') ? 'jee'
-          : (p.exam || '').toLowerCase().includes('mht') || (p.exam || '').toLowerCase().includes('cet') ? 'mhtcet'
-          : p.exam
-    }));
+    // Normalise: DB stores exam_type ('JEE'/'MHT-CET'); frontend wants lowercase 'exam'
+    const normalised = data.map(p => {
+      const raw = (p.exam_type || p.exam || '').toLowerCase();
+      return {
+        ...p,
+        exam: raw.includes('jee') ? 'jee'
+            : (raw.includes('mht') || raw.includes('cet')) ? 'mhtcet'
+            : raw.includes('neet') ? 'neet'
+            : 'jee',
+        year: p.year || '',
+      };
+    });
     return normalised;
   } catch { return base; }
 }
@@ -1005,15 +1017,27 @@ if (typeof renderQuestionBank === 'function') {
 function _requestFS() {
   try {
     const el = document.documentElement;
-    (el.requestFullscreen || el.webkitRequestFullscreen ||
-     el.mozRequestFullScreen || el.msRequestFullscreen || function(){}).call(el);
+    const fn = el.requestFullscreen || el.webkitRequestFullscreen ||
+               el.mozRequestFullScreen || el.msRequestFullscreen;
+    if (fn) {
+      const result = fn.call(el);
+      if (result && typeof result.catch === 'function') result.catch(() => {});
+    }
   } catch(e) {}
 }
 
 function _exitFS() {
   try {
-    (document.exitFullscreen || document.webkitExitFullscreen ||
-     document.mozCancelFullScreen || document.msExitFullscreen || function(){}).call(document);
+    // Only exit if actually in fullscreen — avoids "Document not active" error
+    const fsElement = document.fullscreenElement || document.webkitFullscreenElement ||
+                      document.mozFullScreenElement || document.msFullscreenElement;
+    if (!fsElement) return;
+    const fn = document.exitFullscreen || document.webkitExitFullscreen ||
+               document.mozCancelFullScreen || document.msExitFullscreen;
+    if (fn) {
+      const result = fn.call(document);
+      if (result && typeof result.catch === 'function') result.catch(() => {});
+    }
   } catch(e) {}
 }
 
