@@ -6,7 +6,8 @@
   --bg2: #ffffff;
   --bg3: #eef0f8;
   --text: #1a1d2e;
-  --text2: #5a5f7a;
+  --text2: #474b66;   /* darkened: ~7.9:1 on white — meets WCAG AA for body text */
+  --fg2: var(--text2);/* alias: some markup references var(--fg2) */
   --border: #e2e5f0;
   --accent: #4f46e5;
   --accent2: #7c3aed;
@@ -256,20 +257,38 @@ body.dark #page-auth {
    BUTTONS
 ═══════════════════════════════════════════ */
 .btn-primary {
-  padding: 10px 20px;
+  padding: 11px 22px;
+  min-height: 44px;            /* accessible touch target */
   background: var(--accent);
   color: #fff;
   border: none;
   border-radius: 8px;
   font-family: var(--font);
-  font-weight: 600;
-  font-size: 0.9rem;
+  font-weight: 700;
+  font-size: 0.95rem;
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.1s;
+  box-shadow: 0 2px 8px rgba(79,70,229,0.25);
+  transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
 }
-.btn-primary:hover { opacity: 0.88; }
+.btn-primary:hover { background: #4338ca; box-shadow: 0 4px 14px rgba(79,70,229,0.35); }
 .btn-primary:active { transform: scale(0.98); }
-.btn-primary.full { width: 100%; padding: 12px; }
+.btn-primary.full { width: 100%; padding: 13px; }
+
+/* Dominant conversion CTA — bigger, solid accent, gradient + strong hover */
+.btn-cta {
+  padding: 15px 24px;
+  min-height: 52px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  box-shadow: 0 6px 18px rgba(79,70,229,0.40);
+}
+.btn-cta:hover {
+  background: linear-gradient(135deg, #4338ca, #6d28d9);
+  box-shadow: 0 8px 24px rgba(79,70,229,0.50);
+  transform: translateY(-1px);
+}
 
 .btn-secondary {
   padding: 10px 20px;
@@ -1040,3 +1059,80 @@ body.dark .heatmap-cell.active-3 { background: #6366f1; }
 .class-badge.c11 { background:#dbeafe; color:#1e40af; }
 .class-badge.c12 { background:#ede9fe; color:#6d28d9; }
 .class-badge.mixed { background:#f1f5f9; color:#475569; }
+
+/* ═══════════════════════════════════════════
+   UI/UX AUDIT FIXES
+═══════════════════════════════════════════ */
+
+/* (6) Unified, consistent input/select/textarea styling + spacing */
+input, select, textarea {
+  font-family: var(--font);
+}
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 12px 14px;          /* consistent across every field */
+  min-height: 44px;            /* (7) touch target */
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.3;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.form-group input::placeholder,
+.form-group textarea::placeholder { color: var(--text2); opacity: 0.85; }
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79,70,229,0.18);
+}
+.auth-form .form-group { gap: 7px; }   /* even label↔field spacing */
+.auth-form { gap: 18px; }              /* even field↔field spacing */
+
+/* (8) Visible error state on forms — red border + halo */
+.form-group input.input-error,
+.form-group select.input-error,
+.form-group textarea.input-error {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(239,68,68,0.18);
+}
+.field-error { color: var(--red); font-size: 0.8rem; margin-top: 4px; }
+
+/* (9) Visible keyboard-focus outline on ALL interactive elements */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible,
+.exam-card:focus-visible,
+.option-btn:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+/* keep the richer input focus ring, drop the duplicate generic outline on inputs */
+.form-group input:focus-visible,
+.form-group select:focus-visible,
+.form-group textarea:focus-visible { outline-offset: 0; }
+
+/* (7) Minimum 44×44px touch targets for buttons & links on touch/mobile */
+@media (max-width: 768px) {
+  button,
+  .nav-btn,
+  .auth-tab,
+  .filter-tab,
+  .btn-start,
+  a.btn,
+  .exam-card {
+    min-height: 44px;
+  }
+  .nav-actions button,
+  .filter-tab,
+  .btn-start { min-width: 44px; }
+}

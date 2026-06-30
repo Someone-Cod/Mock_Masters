@@ -129,6 +129,13 @@ function showPage(page) {
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
+// Toggle a visible red error border on a form input (see .input-error in CSS).
+function _markField(id, invalid) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('input-error', !!invalid);
+}
+function _clearFieldErrors(ids) { ids.forEach(id => _markField(id, false)); }
+
 function setupAuth() {
   // Tab switching handled by DOMContentLoaded above
 
@@ -138,7 +145,12 @@ function setupAuth() {
     const password = document.getElementById('signinPassword').value;
     const msg      = document.getElementById('signinMsg');
     msg.textContent = ''; msg.className = 'auth-msg';
-    if (!email || !password) { msg.textContent = 'Please fill in all fields.'; return; }
+    _clearFieldErrors(['signinEmail', 'signinPassword']);
+    if (!email || !password) {
+      _markField('signinEmail', !email);
+      _markField('signinPassword', !password);
+      msg.textContent = 'Please fill in all fields.'; return;
+    }
 
     if (!window._supabase) {
       currentUser = { id: 'demo', email, user_metadata: { full_name: 'Demo User' } };
@@ -160,6 +172,8 @@ function setupAuth() {
           msg.textContent = re ? re.message : '✅ Confirmation email resent — check your inbox.';
         });
       } else if (e.includes('invalid') || e.includes('credentials') || e.includes('wrong')) {
+        _markField('signinEmail', true);
+        _markField('signinPassword', true);
         msg.textContent = 'Incorrect email or password. Please try again.';
       } else {
         msg.textContent = error.message;
@@ -176,8 +190,17 @@ function setupAuth() {
     const exam     = document.getElementById('signupExam').value;
     const msg      = document.getElementById('signupMsg');
     msg.textContent = ''; msg.className = 'auth-msg';
-    if (!name || !email || !password) { msg.textContent = 'Please fill in all fields.'; return; }
-    if (password.length < 8) { msg.textContent = 'Password must be at least 8 characters.'; return; }
+    _clearFieldErrors(['signupName', 'signupEmail', 'signupPassword']);
+    if (!name || !email || !password) {
+      _markField('signupName', !name);
+      _markField('signupEmail', !email);
+      _markField('signupPassword', !password);
+      msg.textContent = 'Please fill in all fields.'; return;
+    }
+    if (password.length < 8) {
+      _markField('signupPassword', true);
+      msg.textContent = 'Password must be at least 8 characters.'; return;
+    }
 
     if (!window._supabase) {
       currentUser = { id: 'demo', email, user_metadata: { full_name: name, target_exam: exam } };
@@ -187,11 +210,12 @@ function setupAuth() {
     const btn = document.getElementById('signupBtn');
     btn.textContent = 'Creating account…'; btn.disabled = true;
     const { data, error } = await db.signUp(email, password, { full_name: name, target_exam: exam });
-    btn.textContent = 'Create Account'; btn.disabled = false;
+    btn.textContent = 'Start Free Mock Test'; btn.disabled = false;
 
     if (error) {
       const e = error.message.toLowerCase();
       if (e.includes('already registered') || e.includes('already exists')) {
+        _markField('signupEmail', true);
         msg.innerHTML = 'Account already exists. <button class="resend-btn" onclick="showSigninPanel()">Sign in instead →</button>';
       } else { msg.textContent = error.message; }
     } else if (data?.session) {
@@ -206,6 +230,11 @@ function setupAuth() {
         msg.textContent = '✅ Resent — check your inbox.';
       });
     }
+  });
+
+  // Clear a field's error border as soon as the user starts correcting it.
+  ['signinEmail','signinPassword','signupName','signupEmail','signupPassword'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', () => _markField(id, false));
   });
 
   // Sign out
@@ -806,6 +835,10 @@ async function fetchQuestions() {
       const { data: chunk, error } = await db.from('questions')
         .select('*')
         .eq('status', 'published')
+        // STABLE order: required for correct, repeatable .range() pagination
+        // (question_number is null for JEE → NULLS LAST, then id).
+        .order('question_number', { ascending: true, nullsFirst: false })
+        .order('id', { ascending: true })
         .range(from, from + PAGE - 1);
       if (error) break;
       if (!chunk || chunk.length === 0) break;
@@ -1822,8 +1855,10 @@ async function _cbt_submitTest() {
   }
   userTests = (() => { try { return JSON.parse(localStorage.getItem('mm_tests')||'[]'); } catch { return []; } })();
 
-  // Record daily goal activity
-  recordDailyActivity(questions.length, correct);
+  // Record daily goal activity — count only questions the user actually
+  // answered (correct + incorrect). Skipped/unanswered must NOT count as "done".
+  const answered = (correct | 0) + (incorrect | 0);
+  recordDailyActivity(answered, correct);
 
   document.getElementById('reviewAnswersBtn').onclick = () => {
     _hide('testResult');
@@ -2002,8 +2037,12 @@ async function startPaperCBT(paperId, exam, title) {
   let paperQs = [];
   if (window._supabase && paperId) {
     try {
+      // STABLE order so a paper's questions never reshuffle on reload.
+      // JEE rows have no question_number → NULLS LAST, then tiebreak by id.
       const { data } = await db.from('questions')
-        .select('*').eq('paper_id', paperId).eq('status', 'published');
+        .select('*').eq('paper_id', paperId).eq('status', 'published')
+        .order('question_number', { ascending: true, nullsFirst: false })
+        .order('id', { ascending: true });
       if (data && data.length) {
         const _ansToIdx = (v) => {
           const s = String(v ?? '').trim().toUpperCase();
