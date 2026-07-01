@@ -41,6 +41,18 @@ const db = {
 
   signOut: () => window._supabase?.auth.signOut(),
 
+  // Send a password-reset email; the link lands the user back on /reset-password.
+  resetPassword: (email, opts) =>
+    window._supabase?.auth.resetPasswordForEmail(email, opts),
+
+  // Set a new password for the currently-authenticated (or recovery) session.
+  updatePassword: (password) =>
+    window._supabase?.auth.updateUser({ password }),
+
+  // OAuth sign-in (full-page redirect to the provider).
+  signInWithOAuth: (provider, opts) =>
+    window._supabase?.auth.signInWithOAuth({ provider, options: opts }),
+
   getSession: () => window._supabase?.auth.getSession(),
 
   onAuthChange: (cb) => window._supabase?.auth.onAuthStateChange(cb),

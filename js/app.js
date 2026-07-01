@@ -9,6 +9,11 @@ let testState = null; // { questions, answers, reviews, currentIdx, timer, exam 
 let timerInterval = null;
 let allQuestions = []; // fetched from Supabase
 let userTests = [];    // fetched test history
+let _recoveryMode = false; // true while handling a password-recovery link
+
+// Auth redirect targets (must match the URLs configured in the Supabase dashboard)
+const SITE_URL = 'https://mock-masters.vercel.app';
+const RESET_REDIRECT = SITE_URL + '/reset-password';
 
 // Demo questions for offline/demo mode
 const DEMO_QUESTIONS = [
@@ -68,15 +73,37 @@ document.addEventListener('supabase:ready', async () => {
   setupTheme();
 
   if (window._supabase) {
-    const { data: { session } } = await db.getSession();
-    if (session) {
-      currentUser = session.user;
-      enterApp();
-    } else {
+    // If the user arrived via a password-recovery link, show the "set new
+    // password" form instead of dropping them into the app.
+    _recoveryMode = _isRecoveryFlow();
+    if (_recoveryMode) {
       showPage('auth');
-      showSigninPanel(); // ensure form visible after page switch
+      showResetPasswordPanel();
+    } else {
+      const { data: { session } } = await db.getSession();
+      if (session) {
+        currentUser = session.user;
+        enterApp();
+      } else {
+        showPage('auth');
+        showSigninPanel(); // ensure form visible after page switch
+      }
     }
-    db.onAuthChange((_event, session) => {
+    db.onAuthChange((event, session) => {
+      // Supabase fires PASSWORD_RECOVERY once it parses the recovery token.
+      if (event === 'PASSWORD_RECOVERY') {
+        _recoveryMode = true;
+        if (session) currentUser = session.user;
+        showPage('auth');
+        showResetPasswordPanel();
+        return;
+      }
+      if (_recoveryMode) {
+        // Stay on the reset form until submitted, but capture the recovery
+        // session's user so we can log them in cleanly afterwards.
+        if (session) currentUser = session.user;
+        return;
+      }
       if (session) { currentUser = session.user; enterApp(); }
       else {
         currentUser = null;
@@ -232,8 +259,60 @@ function setupAuth() {
     }
   });
 
+  // Continue with Google — on both the sign-in and sign-up panels.
+  document.getElementById('googleSigninBtn')?.addEventListener('click', () =>
+    _startGoogleOAuth(document.getElementById('signinMsg')));
+  document.getElementById('googleSignupBtn')?.addEventListener('click', () =>
+    _startGoogleOAuth(document.getElementById('signupMsg')));
+
+  // Set a new password (password-recovery flow).
+  document.getElementById('updatePasswordBtn')?.addEventListener('click', async () => {
+    const pw   = document.getElementById('newPassword').value;
+    const pw2  = document.getElementById('confirmPassword').value;
+    const msg  = document.getElementById('resetMsg');
+    msg.textContent = ''; msg.className = 'auth-msg';
+    _clearFieldErrors(['newPassword', 'confirmPassword']);
+
+    if (!pw || !pw2) {
+      _markField('newPassword', !pw);
+      _markField('confirmPassword', !pw2);
+      msg.textContent = 'Please fill in both fields.'; return;
+    }
+    if (pw.length < 8) {
+      _markField('newPassword', true);
+      msg.textContent = 'Password must be at least 8 characters.'; return;
+    }
+    if (pw !== pw2) {
+      _markField('confirmPassword', true);
+      msg.textContent = 'Passwords do not match.'; return;
+    }
+    if (!window._supabase) {
+      msg.className = 'auth-msg success';
+      msg.textContent = '(Demo) Password would be updated.'; return;
+    }
+
+    const btn = document.getElementById('updatePasswordBtn');
+    btn.textContent = 'Updating…'; btn.disabled = true;
+    const { error } = await db.updatePassword(pw);
+    btn.textContent = 'Update Password'; btn.disabled = false;
+
+    if (error) {
+      // Recovery sessions expire; tell the user plainly instead of failing silently.
+      const e = error.message.toLowerCase();
+      msg.textContent = (e.includes('expired') || e.includes('invalid') || e.includes('session'))
+        ? 'This reset link has expired or is invalid. Please request a new one.'
+        : error.message;
+      return;
+    }
+    msg.className = 'auth-msg success';
+    msg.textContent = '✅ Password updated! Signing you in…';
+    _recoveryMode = false;
+    _cleanRecoveryUrl();
+    setTimeout(() => { if (currentUser) enterApp(); else showSigninPanel(); }, 1200);
+  });
+
   // Clear a field's error border as soon as the user starts correcting it.
-  ['signinEmail','signinPassword','signupName','signupEmail','signupPassword'].forEach(id => {
+  ['signinEmail','signinPassword','signupName','signupEmail','signupPassword','newPassword','confirmPassword'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', () => _markField(id, false));
   });
 
@@ -966,8 +1045,8 @@ document.addEventListener('supabase:ready', () => {
     }
     const btn = document.getElementById('sendResetBtn');
     btn.textContent = 'Sending…'; btn.disabled = true;
-    const { error } = await window._supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
+    const { error } = await db.resetPassword(email, {
+      redirectTo: RESET_REDIRECT,
     });
     btn.textContent = 'Send Reset Link'; btn.disabled = false;
     if (error) { msg.textContent = error.message; }
@@ -984,10 +1063,17 @@ function _hide(id)  { const el = document.getElementById(id); if(el){ el.style.d
 function _showPanel(id) { _show(id); }
 function _hidePanel(id) { _hide(id); }
 
+function _showAuthTabs(visible) {
+  const t = document.querySelector('.auth-tabs');
+  if (t) t.style.display = visible ? '' : 'none';
+}
+
 function showSigninPanel() {
   _show('signinForm');
   _hide('signupForm');
   _hide('forgotForm');
+  _hide('resetPasswordForm');
+  _showAuthTabs(true);
   document.getElementById('signinTab')?.classList.add('active');
   document.getElementById('signupTab')?.classList.remove('active');
   const m = document.getElementById('signinMsg'); if(m) m.textContent = '';
@@ -997,6 +1083,8 @@ function showSignupPanel() {
   _show('signupForm');
   _hide('signinForm');
   _hide('forgotForm');
+  _hide('resetPasswordForm');
+  _showAuthTabs(true);
   document.getElementById('signupTab')?.classList.add('active');
   document.getElementById('signinTab')?.classList.remove('active');
   const m = document.getElementById('signupMsg'); if(m) m.textContent = '';
@@ -1006,10 +1094,50 @@ function showForgotPanel() {
   _show('forgotForm');
   _hide('signinForm');
   _hide('signupForm');
+  _hide('resetPasswordForm');
+  _showAuthTabs(true);
   document.getElementById('signinTab')?.classList.remove('active');
   document.getElementById('signupTab')?.classList.remove('active');
   const m = document.getElementById('forgotMsg'); if(m) m.textContent = '';
   const r = document.getElementById('resetEmail'); if(r) r.value = '';
+}
+
+// The "set a new password" panel shown after clicking a recovery link.
+function showResetPasswordPanel() {
+  _show('resetPasswordForm');
+  _hide('signinForm');
+  _hide('signupForm');
+  _hide('forgotForm');
+  _showAuthTabs(false);
+  const m = document.getElementById('resetMsg'); if(m) { m.textContent = ''; m.className = 'auth-msg'; }
+}
+
+// Detect a password-recovery landing: Supabase puts `type=recovery` in the URL
+// hash (and the app is redirected to the /reset-password path).
+function _isRecoveryFlow() {
+  const hash   = window.location.hash || '';
+  const search = window.location.search || '';
+  return /type=recovery/.test(hash) ||
+         /type=recovery/.test(search) ||
+         window.location.pathname.replace(/\/+$/, '').endsWith('/reset-password');
+}
+
+// Strip the recovery token from the URL after a successful reset.
+function _cleanRecoveryUrl() {
+  try {
+    history.replaceState(null, '', SITE_URL + '/');
+  } catch (_) { /* ignore */ }
+}
+
+// Kick off Google OAuth; on success the browser is redirected away.
+async function _startGoogleOAuth(msgEl) {
+  if (msgEl) { msgEl.textContent = ''; msgEl.className = 'auth-msg'; }
+  if (!window._supabase) {
+    if (msgEl) { msgEl.className = 'auth-msg success'; msgEl.textContent = '(Demo) Google sign-in unavailable offline.'; }
+    return;
+  }
+  const { error } = await db.signInWithOAuth('google', { redirectTo: SITE_URL });
+  if (error && msgEl) { msgEl.textContent = error.message; }
 }
 
 // ─── Practice Zoom ────────────────────────────────────────────────────────────
