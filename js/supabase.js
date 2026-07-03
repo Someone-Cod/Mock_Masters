@@ -4,7 +4,9 @@
 // ═══════════════════════════════════════════
 
 const SUPABASE_URL = 'https://klyupctuhjahdsaqtuaj.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtseXVwY3R1aGphaGRzYXF0dWFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MzY2MzYsImV4cCI6MjA4OTUxMjYzNn0.7pkKImaflfDuraw_9Ug6wRZ8DJkQ-YYLlU7yeKCYPDo';
+// After the JWT secret was rotated, use the modern *publishable* key
+// (sb_publishable_…) — the recommended client key, independent of JWT rotation.
+const SUPABASE_ANON_KEY = 'sb_publishable_vgTDr7FinuMNpago3jUuhQ_RF9sp5co';
 
 // Load Supabase SDK from CDN dynamically
 (function () {

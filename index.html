@@ -94,6 +94,18 @@
     .cbt-timer-wrap .timer { color:#fff; font-family:'JetBrains Mono', monospace; font-size:1.1rem; }
     .cbt-timer-wrap .timer.warning { color:#fde68a !important; }
 
+    /* Fix: the exam timer strip + section tabs were hidden behind the fixed
+       navbar. Push the test screens below it, and keep the timer bar stuck
+       just under the navbar (below its z-index) so it stays visible while
+       scrolling a question. */
+    #activeTest, #testInstructions { padding-top: var(--nav-h); }
+    #pretestState { margin-top: calc(var(--nav-h) + 24px) !important; }
+    #activeTest .cbt-topbar { position: sticky; top: var(--nav-h); z-index: 90; }
+    #activeTest .cbt-sections { background: var(--bg2); }
+    /* #activeTest already offsets the navbar — drop the layout's own top gap. */
+    #activeTest .test-layout { padding-top: 20px; }
+    #activeTest .test-sidebar { top: calc(var(--nav-h) + 96px); }
+
     /* Section tabs */
     .cbt-sections { display:flex; gap:0; border-bottom:2px solid var(--border); background:var(--bg1); overflow-x:auto; }
     .section-tab { padding:10px 22px; border:none; background:none; color:var(--fg2); font-size:0.88rem; font-weight:600; cursor:pointer; border-bottom:3px solid transparent; margin-bottom:-2px; white-space:nowrap; font-family:inherit; transition:all .15s; }
@@ -482,17 +494,35 @@
       <div id="pretestState" class="pretest-center" style="max-width:560px;margin:40px auto;padding:24px;">
         <div class="pretest-icon">📝</div>
         <h2>Select a test to begin</h2>
-        <p>Go to Dashboard → Quick Start to select a test</p>
+        <p>Pick an exam below to start a full mock test right away.</p>
+        <div class="exam-cards pretest-picker" style="width:100%;">
+          <div class="exam-card" onclick="quickStart('jee')">
+            <div class="exam-icon">🔬</div>
+            <div class="exam-info">
+              <h4>JEE Main</h4>
+              <p>Physics · Chemistry · Maths · +4 / −1</p>
+            </div>
+            <button class="btn-start">Start Test →</button>
+          </div>
+          <div class="exam-card" onclick="quickStart('mhtcet')">
+            <div class="exam-icon">🧬</div>
+            <div class="exam-info">
+              <h4>MHT-CET</h4>
+              <p>PCM · +1 / +2 Maths · no negative</p>
+            </div>
+            <button class="btn-start">Start Test →</button>
+          </div>
+        </div>
         <div class="marking-scheme">
           <h4>Marking Scheme</h4>
           <ul>
-            <li>+4 marks for every correct answer</li>
-            <li>−1 mark for every incorrect answer</li>
+            <li>JEE: +4 correct, −1 wrong, 0 skipped</li>
+            <li>MHT-CET: +1 (P/C), +2 (Maths), no negative marking</li>
             <li>0 marks for skipped / unattempted</li>
             <li>Timer runs — no pauses allowed</li>
           </ul>
         </div>
-        <button class="btn-primary" onclick="navigateTo('dashboard')">← Go to Dashboard and click "Start Test"</button>
+        <button class="btn-secondary" onclick="navigateTo('dashboard')">← Back to Dashboard</button>
       </div>
 
       <!-- ── Instructions Screen ── -->

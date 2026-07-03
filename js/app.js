@@ -356,7 +356,11 @@ function applyTheme(t) {
 // ─── Help ─────────────────────────────────────────────────────────────────────
 function setupHelp() {
   document.getElementById('helpBtn').addEventListener('click', () => {
-    _show('helpModal');
+    // Use flex (not _show's display:block) so the modal box stays centered —
+    // block layout left the popup flush against the left edge, clipped.
+    const m = document.getElementById('helpModal');
+    m.classList.remove('hidden');
+    m.style.display = 'flex';
   });
   document.getElementById('helpModal').addEventListener('click', (e) => {
     if (e.target === document.getElementById('helpModal')) _hide('helpModal');
@@ -367,17 +371,20 @@ function setupHelp() {
 async function loadDashboard() {
   // Load test history
   userTests = await fetchUserTests();
+  // All stats are computed from the user's real test_attempts rows — no random,
+  // hardcoded, or placeholder values. Empty history → 0, never a fake number.
   const numTests = userTests.length;
-  const totalCorrect = userTests.reduce((s, t) => s + (t.correct || 0), 0);
-  const totalQ = userTests.reduce((s, t) => s + (t.total || 0), 0);
-  const avgAcc = totalQ > 0 ? Math.round((totalCorrect / totalQ) * 100) : 0;
+  const totalCorrect   = userTests.reduce((s, t) => s + (t.correct   || 0), 0);
+  const totalIncorrect = userTests.reduce((s, t) => s + (t.incorrect || 0), 0);
+  const answered = totalCorrect + totalIncorrect;               // questions answered
+  const avgAcc = answered > 0 ? Math.round((totalCorrect / answered) * 100) : 0;
   const lastDate = numTests > 0 ? formatDate(userTests[0].created_at) : 'Never';
 
   document.getElementById('statTests').textContent = numTests;
   document.getElementById('statTestsSub').textContent = numTests === 1 ? '1 test' : `${numTests} tests`;
-  document.getElementById('statAccuracy').textContent = totalQ > 0 ? `${avgAcc}%` : '—';
-  document.getElementById('statAccuracySub').textContent = totalQ > 0 ? 'across all tests' : 'No tests yet';
-  document.getElementById('statQuestions').textContent = totalQ || '—';
+  document.getElementById('statAccuracy').textContent = answered > 0 ? `${avgAcc}%` : '—';
+  document.getElementById('statAccuracySub').textContent = answered > 0 ? 'across all tests' : 'No tests yet';
+  document.getElementById('statQuestions').textContent = answered || 0;
   document.getElementById('statLastActive').textContent = lastDate;
 
   // Subject performance
@@ -947,6 +954,7 @@ async function fetchQuestions() {
                     ? q.options
                     : [q.option_a ?? q.a ?? '', q.option_b ?? q.b ?? '', q.option_c ?? q.c ?? '', q.option_d ?? q.d ?? ''],
       answer:     _ansToIdx(q.answer ?? q.correct_option ?? q.correct),
+      explanation: q.explanation || q.solution || '',
       year:       q.year,
       source:     q.source,
       chapter:    q.chapter || 'General',
@@ -963,25 +971,23 @@ async function fetchQuestions() {
 }
 
 async function fetchUserTests() {
-  // Always load local copy first
-  let localTests = [];
-  try { localTests = JSON.parse(localStorage.getItem('mm_tests') || '[]'); } catch { localTests = []; }
-
+  // Demo / offline only: local history is the sole source of truth.
   if (!window._supabase || !currentUser?.id || currentUser.id === 'demo') {
-    return localTests;
+    try { return JSON.parse(localStorage.getItem('mm_tests') || '[]'); } catch { return []; }
   }
+  // Logged-in real user: use ONLY their real test_attempts rows. Never fall
+  // back to stale localStorage — that's what produced the fake "8 tests /
+  // 600 questions" while subject performance showed no data. No rows → [].
   try {
     const { data, error } = await db.from('test_attempts')
       .select('*')
       .eq('user_id', currentUser.id)
       .order('created_at', { ascending: false });
-    if (error || !data || data.length === 0) {
-      // Supabase empty or failed — fall back to local so analytics still shows
-      return localTests;
-    }
-    return data;
-  } catch {
-    return localTests;
+    if (error) { console.warn('fetchUserTests failed', error); return []; }
+    return data || [];
+  } catch (e) {
+    console.warn('fetchUserTests threw', e);
+    return [];
   }
 }
 
@@ -1527,6 +1533,20 @@ window.quickStart = function(exam) {
   _cbt_startTest(allSelected, exam, cfg);
 };
 
+// Max possible marks = sum of each ACTUAL question's positive marks (per its
+// section + whether it's an integer question), NOT the config's ideal question
+// counts. So an 18-question JEE test shows /72 (18×4), never a hardcoded /300.
+// Uses the same per-section marks the scorer uses, so score/max stays consistent.
+function _cbt_maxMarks() {
+  let m = 0;
+  cbtSections.forEach(sec => {
+    for (let i = sec.startIdx; i <= sec.endIdx; i++) {
+      m += (cbtQTypes[i] === 'integer' ? sec.intMarks[0] : sec.mcqMarks[0]);
+    }
+  });
+  return m;
+}
+
 // ─── Main CBT start (replaces startTest for structured exams) ─────────────────
 function _cbt_startTest(questions, exam, cfg) {
   testState = {
@@ -1552,9 +1572,7 @@ function _cbt_startTest(questions, exam, cfg) {
   document.getElementById('instrTotalQ').textContent = questions.length;
   document.getElementById('instrDuration').textContent = cfg.duration + ' minutes';
 
-  const maxMarks = cbtSections.reduce((s, sec) => {
-    return s + sec.mcq * sec.mcqMarks[0] + sec.integer * sec.intMarks[0];
-  }, 0);
+  const maxMarks = _cbt_maxMarks();
   document.getElementById('instrTotalMarks').textContent = maxMarks;
 
   document.getElementById('instrSections').innerHTML = cbtSections.map(sec =>
@@ -1819,9 +1837,50 @@ function _cbt_renderQuestion() {
   // Review btn highlight
   document.getElementById('reviewBtn').style.background = reviews[currentIdx] ? '#8b5cf6' : '';
 
+  // Task 6: show the question's explanation in review mode when one exists.
+  // (Most are empty right now — that's fine; the block only appears when set.)
+  let expl = document.getElementById('reviewExplanation');
+  if (review && q.explanation && String(q.explanation).trim()) {
+    if (!expl) {
+      expl = document.createElement('div');
+      expl.id = 'reviewExplanation';
+      optsCont.parentNode.appendChild(expl); // inside .question-card, below options
+    }
+    expl.style.cssText = 'margin-top:16px;padding:14px 16px;background:var(--bg3);' +
+      'border-left:4px solid var(--accent);border-radius:8px;font-size:0.9rem;line-height:1.55;';
+    expl.innerHTML = '<strong style="display:block;margin-bottom:6px;color:var(--accent)">Explanation</strong>' +
+      _renderMath(q.explanation);
+  } else if (expl) {
+    expl.remove();
+  }
+
+  // Task 5: in review mode a completed attempt must not be alterable or
+  // re-submittable — hide Save & Next, Submit (both), Clear, and Mark-for-Review.
+  // (Options are already locked above.) Restore them for a live attempt.
+  _cbt_applyReviewLock(review);
+
   // Palette
   _cbt_buildPalette();
   _updateInlineSubmit(questions.length);
+}
+
+// Show/hide the answer-altering + submit controls based on review mode.
+function _cbt_applyReviewLock(review) {
+  const setDisp = (id, show) => { const el = document.getElementById(id); if (el) el.style.display = show ? '' : 'none'; };
+  setDisp('submitTestBtn', !review);
+  setDisp('clearBtn', !review);
+  setDisp('reviewBtn', !review);
+  // Inline submit lives inside a .inline-submit wrapper — hide the whole wrapper.
+  const inlineBtn = document.getElementById('submitTestBtnInline');
+  const inlineWrap = inlineBtn ? inlineBtn.closest('.inline-submit') : null;
+  if (inlineWrap) inlineWrap.style.display = review ? 'none' : '';
+  else setDisp('submitTestBtnInline', !review);
+  // "Save & Next" saves nothing in review — hide it; palette + Previous navigate.
+  const nextBtn = document.getElementById('nextBtn');
+  if (nextBtn) {
+    nextBtn.style.display = review ? 'none' : '';
+    nextBtn.innerHTML = 'Save &amp; Next →';
+  }
 }
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
@@ -1913,8 +1972,8 @@ async function _cbt_submitTest() {
   });
 
   // Max possible marks
-  const maxMarks = cbtSections.reduce((s, sec) =>
-    s + sec.mcq * sec.mcqMarks[0] + sec.integer * sec.intMarks[0], 0);
+  // Max possible marks — from the actual questions in this test, not config counts
+  const maxMarks = _cbt_maxMarks();
   const scorePct = maxMarks > 0 ? Math.round(Math.max(0, totalMarks) / maxMarks * 100) : 0;
 
   _hide('activeTest');

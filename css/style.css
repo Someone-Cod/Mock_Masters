@@ -1136,3 +1136,15 @@ textarea:focus-visible,
   .filter-tab,
   .btn-start { min-width: 44px; }
 }
+
+/* ═══ Fix: Practice page horizontal-scroll overflow ═══ */
+/* Long question / option strings (formulas, unbroken tokens) and the 2-col
+   option grid were pushing content past the viewport. Let them wrap/shrink,
+   and clip stray overflow on the non-test pages (scoped away from the mock
+   test so the sticky palette sidebar keeps working). */
+.q-text, .q-opt-line, .q-subject, .chapter-name, .chapter-sub { overflow-wrap: anywhere; word-break: break-word; }
+.q-options-preview, .q-opt-line { min-width: 0; }
+.bank-actions { flex-wrap: wrap; gap: 10px; }
+.chapter-item { gap: 12px; }
+.chapter-stats { flex-wrap: wrap; justify-content: flex-end; }
+#page-practice .page-content, #page-dashboard .page-content { overflow-x: hidden; }
