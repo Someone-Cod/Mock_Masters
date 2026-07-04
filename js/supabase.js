@@ -61,4 +61,10 @@ const db = {
 
   // Data
   from: (table) => window._supabase?.from(table),
+
+  // Server-side RPCs (SECURITY DEFINER). Used for test questions + grading so
+  // the correct answers are NEVER sent to the client before submission.
+  //   get_test_questions(...) → questions WITHOUT correct_option
+  //   grade_test(answers)     → is_correct per question, verified on the server
+  rpc: (fn, params) => window._supabase?.rpc(fn, params),
 };

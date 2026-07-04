@@ -10,24 +10,100 @@ let timerInterval = null;
 let allQuestions = []; // fetched from Supabase
 let userTests = [];    // fetched test history
 let _recoveryMode = false; // true while handling a password-recovery link
+let _entered = false;      // true once the app shell is shown (prevents double loads)
 
 // Auth redirect targets (must match the URLs configured in the Supabase dashboard)
 const SITE_URL = 'https://mock-masters.vercel.app';
 const RESET_REDIRECT = SITE_URL + '/reset-password';
 
-// Demo questions for offline/demo mode
-const DEMO_QUESTIONS = [
-  { id: 1, exam: 'jee', subject: 'physics', difficulty: 'medium', text: 'A body of mass 2 kg is thrown vertically upward with a velocity of 20 m/s. What is the maximum height reached? (g = 10 m/s²)', options: ['10 m', '20 m', '30 m', '40 m'], answer: 1 },
-  { id: 2, exam: 'jee', subject: 'chemistry', difficulty: 'easy', text: 'What is the atomic number of Carbon?', options: ['4', '6', '8', '12'], answer: 1 },
-  { id: 3, exam: 'jee', subject: 'mathematics', difficulty: 'hard', text: 'The value of ∫₀¹ x² dx is:', options: ['1/4', '1/3', '1/2', '1'], answer: 1 },
-  { id: 4, exam: 'mhtcet', subject: 'biology', difficulty: 'easy', text: 'The powerhouse of the cell is:', options: ['Nucleus', 'Ribosome', 'Mitochondria', 'Golgi apparatus'], answer: 2 },
-  { id: 5, exam: 'jee', subject: 'physics', difficulty: 'easy', text: 'The SI unit of force is:', options: ['Joule', 'Newton', 'Pascal', 'Watt'], answer: 1 },
-  { id: 6, exam: 'jee', subject: 'chemistry', difficulty: 'medium', text: 'Which of the following is a noble gas?', options: ['Oxygen', 'Nitrogen', 'Argon', 'Chlorine'], answer: 2 },
-  { id: 7, exam: 'mhtcet', subject: 'mathematics', difficulty: 'medium', text: 'If sin θ = 3/5, then cos θ equals:', options: ['4/5', '3/4', '5/3', '5/4'], answer: 0 },
-  { id: 8, exam: 'generic', subject: 'physics', difficulty: 'hard', text: "Which of Maxwell's equations relates a changing magnetic field to an electric field?", options: ["Gauss's law", "Ampere's law", "Faraday's law", "Gauss's law for magnetism"], answer: 2 },
-  { id: 9, exam: 'jee', subject: 'mathematics', difficulty: 'easy', text: 'The derivative of sin(x) is:', options: ['cos(x)', '−cos(x)', 'sin(x)', '−sin(x)'], answer: 0 },
-  { id: 10, exam: 'jee', subject: 'chemistry', difficulty: 'hard', text: 'Which of the following represents the electronic configuration of Na⁺?', options: ['[Ne]', '[Ar]', '[He] 2s²', '[Ne] 3s¹'], answer: 0 },
-];
+// ─── Security: NO questions or answers are hardcoded in this file ─────────────
+// Every question and its correct answer lives server-side. The client fetches
+// answerless questions via get_test_questions(...) and grades via grade_test(...).
+// (The old DEMO_QUESTIONS / MHT_CET_QUESTIONS arrays — which exposed the
+//  `answer` field in View Source — have been removed entirely.)
+
+// Map the app's lowercase exam keys → the DB's exam_type values.
+function _examToDb(exam) {
+  const e = String(exam || '').toLowerCase();
+  if (e === 'jee') return 'JEE';
+  if (e === 'mhtcet' || e === 'mht-cet' || e === 'cet') return 'MHT-CET';
+  if (e === 'neet') return 'NEET';
+  return null; // generic / unknown → no exam filter
+}
+// Map the app's lowercase subject → the DB's capitalised subject value.
+function _subjToDb(subj) {
+  const s = String(subj || '').toLowerCase();
+  if (!s) return null;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+// Option index (0..3) ⇄ option letter ('A'..'D')
+function _idxToLetter(i) { return ['A', 'B', 'C', 'D'][i] ?? null; }
+function _letterToIdx(v) {
+  const s = String(v ?? '').trim().toUpperCase();
+  return s === 'A' ? 0 : s === 'B' ? 1 : s === 'C' ? 2 : s === 'D' ? 3 : -1;
+}
+
+// Normalise a row returned by get_test_questions into the client question shape.
+// IMPORTANT: this row never contains correct_option, so there is no `answer`.
+function _normalizeRpcRow(q) {
+  return {
+    id:         q.id,
+    exam:       String(q.exam_type || '').toLowerCase().replace(/-/g, ''), // 'MHT-CET'→'mhtcet'
+    subject:    String(q.subject || 'physics').toLowerCase(),
+    difficulty: String(q.difficulty || 'medium').toLowerCase(),
+    text:       q.text || q.question_text || '',
+    options:    Array.isArray(q.options)
+                  ? q.options
+                  : [q.option_a ?? '', q.option_b ?? '', q.option_c ?? '', q.option_d ?? ''],
+    year:       q.year,
+    chapter:    q.chapter || 'General',
+    standard:   q.standard || 'mixed',
+    image_svg:  q.image_svg || null,
+    image_url:  q.image_url || null,
+    marks:          typeof q.marks === 'number' ? q.marks : 4,
+    negative_marks: typeof q.negative_marks === 'number' ? q.negative_marks : 0,
+  };
+}
+
+// Fetch answerless test questions from the server via the get_test_questions RPC.
+async function rpcGetTestQuestions({ exam, subject, chapter, difficulty, standard, count } = {}) {
+  if (!window._supabase) return [];
+  try {
+    const { data, error } = await db.rpc('get_test_questions', {
+      p_exam_type:  _examToDb(exam),
+      p_subjects:   subject ? [_subjToDb(subject)] : null,
+      p_chapters:   chapter ? [chapter] : null,
+      p_difficulty: difficulty || null,
+      p_standard:   standard || null,
+      p_count:      count || 30,
+    });
+    if (error || !Array.isArray(data)) return [];
+    return data
+      .map(_normalizeRpcRow)
+      .filter(q => q.text && q.options.length === 4 && q.options.some(o => o && String(o).trim()));
+  } catch { return []; }
+}
+
+// Grade a completed test on the server via the grade_test RPC.
+// `answered` is an array of { id, selected } where selected is 'A'..'D' (or null).
+// Returns a Map keyed by question id → { correctIdx, is_correct, marks, negative_marks }.
+async function rpcGradeTest(answered) {
+  const result = new Map();
+  if (!window._supabase || !answered.length) return result;
+  try {
+    const { data, error } = await db.rpc('grade_test', { p_answers: answered });
+    if (error || !Array.isArray(data)) return result;
+    data.forEach(r => {
+      result.set(r.id, {
+        correctIdx:     _letterToIdx(r.correct_option),
+        is_correct:     r.is_correct === true,
+        marks:          typeof r.marks === 'number' ? r.marks : 4,
+        negative_marks: typeof r.negative_marks === 'number' ? r.negative_marks : 0,
+      });
+    });
+    return result;
+  } catch { return result; }
+}
 
 const DEMO_PAPERS = [
   { id: 'jee_2024_jan_s1', exam: 'jee', title: 'JEE Main 2024 January Session 1', year: 2024 },
@@ -104,9 +180,13 @@ document.addEventListener('supabase:ready', async () => {
         if (session) currentUser = session.user;
         return;
       }
-      if (session) { currentUser = session.user; enterApp(); }
+      // Guard against the initial INITIAL_SESSION event re-entering the app
+      // right after getSession() already did — that caused every dashboard
+      // read to fire twice.
+      if (session) { currentUser = session.user; if (!_entered) enterApp(); }
       else {
         currentUser = null;
+        _entered = false;
         const nav = document.getElementById('navbar');
         if (nav) { nav.classList.add('hidden'); nav.style.display = 'none'; }
         showPage('auth');
@@ -330,6 +410,7 @@ function setupAuth() {
 }
 
 function enterApp() {
+  _entered = true;
   const nav = document.getElementById('navbar');
   if (nav) { nav.classList.remove('hidden'); nav.style.display = ''; }
   // Hide auth page
@@ -387,23 +468,27 @@ async function loadDashboard() {
   document.getElementById('statQuestions').textContent = answered || 0;
   document.getElementById('statLastActive').textContent = lastDate;
 
-  // Subject performance
+  // Subject performance — keys are lowercase to match how subject_breakdown is
+  // stored (r.name.toLowerCase()); this was the "Subject Performance: no data"
+  // contradiction. Accuracy uses answered (correct+incorrect), not total.
   const subjectEl = document.getElementById('subjectPerformance');
-  const subjects = { Physics: {c:0,t:0}, Chemistry: {c:0,t:0}, Mathematics: {c:0,t:0}, Biology: {c:0,t:0} };
+  const subjects = { physics: {c:0,a:0}, chemistry: {c:0,a:0}, mathematics: {c:0,a:0}, biology: {c:0,a:0} };
   userTests.forEach(test => {
     (test.subject_breakdown || []).forEach(sb => {
-      if (subjects[sb.subject]) {
-        subjects[sb.subject].c += sb.correct;
-        subjects[sb.subject].t += sb.total;
+      const key = String(sb.subject || '').toLowerCase();
+      if (subjects[key]) {
+        subjects[key].c += (sb.correct || 0);
+        subjects[key].a += (sb.correct || 0) + (sb.incorrect || 0);
       }
     });
   });
+  const _subjLabel = { physics:'Physics', chemistry:'Chemistry', mathematics:'Mathematics', biology:'Biology' };
   const bars = Object.entries(subjects)
-    .filter(([,v]) => v.t > 0)
+    .filter(([,v]) => v.a > 0)
     .map(([name, v]) => {
-      const pct = Math.round((v.c / v.t) * 100);
+      const pct = Math.round((v.c / v.a) * 100);
       return `<div class="subject-bar-item">
-        <div class="subject-bar-label"><span>${name}</span><span>${pct}%</span></div>
+        <div class="subject-bar-label"><span>${_subjLabel[name]}</span><span>${pct}%</span></div>
         <div class="subject-bar-track"><div class="subject-bar-fill" style="width:${pct}%"></div></div>
       </div>`;
     });
@@ -535,15 +620,14 @@ function solveFiltered() {
 function diffOrder(d) { return d === 'easy' ? 0 : d === 'medium' ? 1 : 2; }
 
 // ─── Mock Test ────────────────────────────────────────────────────────────────
-function quickStart(exam) {
-  const qs = allQuestions.length > 0
-    ? allQuestions.filter(q => q.exam === exam || exam === 'generic')
-    : DEMO_QUESTIONS.filter(q => q.exam === exam || exam === 'generic');
-
+async function quickStart(exam) {
+  // Pull answerless questions from the server (never contains correct_option).
+  let qs = await rpcGetTestQuestions({ exam, count: 30 });
   if (qs.length === 0) {
-    
-    return;
+    // Fall back to any already-loaded (answerless) practice questions.
+    qs = allQuestions.filter(q => q.exam === exam || exam === 'generic');
   }
+  if (qs.length === 0) return;
 
   const selected = shuffleArray(qs).slice(0, Math.min(30, qs.length));
   startTest(selected, exam);
@@ -564,6 +648,11 @@ function startTest(questions, exam) {
   _hide('pretestState');
   _hide('testResult');
   _show('activeTest');
+
+  // Re-show controls that a previous review may have hidden.
+  ['prevBtn', 'nextBtn', 'reviewBtn', 'clearBtn', 'submitTestBtn', 'submitTestBtnInline']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = ''; });
+  const _isw = document.querySelector('.inline-submit'); if (_isw) _isw.style.display = '';
 
   buildPalette();
   renderQuestion();
@@ -652,16 +741,35 @@ function updateTimerDisplay(secs) {
 async function submitTest() {
   clearInterval(timerInterval);
   const { questions, answers } = testState;
+
+  // Ask the server to grade — send every question id with the selected letter
+  // (or null when skipped) so we also learn the correct option for review.
+  const payload = questions.map((q, i) => ({
+    id: q.id,
+    selected: answers[i] === null ? null : _idxToLetter(answers[i]),
+  }));
+  const graded = await rpcGradeTest(payload);
+  testState.graded = graded; // used by reviewAnswers to reveal correct answers
+
   let correct = 0, incorrect = 0, skipped = 0;
+  let totalMarks = 0, maxMarks = 0;
   answers.forEach((ans, i) => {
-    if (ans === null) skipped++;
-    else if (ans === questions[i].answer) correct++;
-    else incorrect++;
+    const g = graded.get(questions[i].id);
+    const mk  = g ? g.marks : (questions[i].marks ?? 4);
+    const neg = g ? g.negative_marks : (questions[i].negative_marks ?? 0);
+    maxMarks += mk;
+    // Record the server-verified correct index for review mode.
+    questions[i]._correctIdx = g ? g.correctIdx : -1;
+    if (ans === null) { skipped++; }
+    else if (g && g.is_correct) { correct++; totalMarks += mk; }
+    else { incorrect++; totalMarks -= neg; }
   });
-  const score = Math.round(((correct * 4 - incorrect) / (questions.length * 4)) * 100);
+  const score = maxMarks > 0 ? Math.round(Math.max(0, totalMarks) / maxMarks * 100) : 0;
 
   _hide('activeTest');
   _show('testResult');
+  const rm = document.getElementById('resultMarks');
+  if (rm) rm.textContent = Math.max(0, totalMarks) + ' / ' + maxMarks + ' marks';
   document.getElementById('resultScore').textContent = `${Math.max(0, score)}%`;
   document.getElementById('resultCorrect').textContent = correct;
   document.getElementById('resultIncorrect').textContent = incorrect;
@@ -707,14 +815,19 @@ function reviewAnswers() {
   _show('activeTest');
   testState.currentIdx = 0;
 
-  // Render options with correct/wrong highlights
+  // Review mode: hide the answer-changing controls so the test can't be resumed.
+  ['nextBtn', 'submitTestBtn', 'submitTestBtnInline', 'reviewBtn', 'clearBtn', 'prevBtn']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+
+  // Render options with correct/wrong highlights using the server-verified key.
   const { questions, answers } = testState;
+  const q0 = questions[0];
   document.getElementById('questionProgress').textContent = `Review — Q 1 of ${questions.length}`;
-  document.getElementById('questionContent').textContent = questions[0].text;
+  document.getElementById('questionContent').textContent = q0.text;
   const labels = ['A','B','C','D'];
-  document.getElementById('optionsContainer').innerHTML = questions[0].options.map((opt, i) => {
+  document.getElementById('optionsContainer').innerHTML = q0.options.map((opt, i) => {
     let cls = '';
-    if (i === questions[0].answer) cls = 'correct';
+    if (i === q0._correctIdx) cls = 'correct';
     else if (answers[0] === i) cls = 'wrong';
     return `<button class="option-btn ${cls}" disabled>
       <span class="option-label">${labels[i]}</span>${opt}
@@ -909,17 +1022,22 @@ function buildHeatmap(tests) {
 
 // ─── Data fetchers ─────────────────────────────────────────────────────────────
 async function fetchQuestions() {
-  // Always include MHT-CET PYQ questions
-  const pyq = typeof MHT_CET_QUESTIONS !== 'undefined' ? MHT_CET_QUESTIONS : [];
-
-  if (!window._supabase) return [...DEMO_QUESTIONS, ...pyq];
+  // Browse "Question Bank" pool. SECURITY: never select correct_option (or the
+  // explanation, which usually states the answer) — the answer key must never
+  // reach the client. We list columns explicitly and omit them, so these objects
+  // have NO `answer` field. Grading always goes through the grade_test RPC.
+  if (!window._supabase) return [];
+  // Columns safe to expose (everything EXCEPT correct_option / explanation).
+  const SAFE_COLS = 'id,exam_type,subject,chapter,topic,standard,difficulty,year,' +
+    'question_number,question_text,text,options,option_a,option_b,option_c,option_d,' +
+    'image_url,image_svg,option_images,marks,negative_marks';
   try {
     // Supabase caps each request at 1000 rows — paginate to get everything
     let data = [];
     const PAGE = 1000;
     for (let from = 0; from < 20000; from += PAGE) {
       const { data: chunk, error } = await db.from('questions')
-        .select('*')
+        .select(SAFE_COLS)
         .eq('status', 'published')
         // STABLE order: required for correct, repeatable .range() pagination
         // (question_number is null for JEE → NULLS LAST, then id).
@@ -931,43 +1049,27 @@ async function fetchQuestions() {
       data = data.concat(chunk);
       if (chunk.length < PAGE) break;
     }
-    if (!data.length) return [...DEMO_QUESTIONS, ...pyq];
+    if (!data.length) return [];
 
-    // Normalise Supabase rows — handle varied field names
-    const _ansToIdx = (v) => {
-      if (typeof v === 'number') return v;
-      const s = String(v ?? '').trim().toUpperCase();
-      if (s === 'A') return 0;
-      if (s === 'B') return 1;
-      if (s === 'C') return 2;
-      if (s === 'D') return 3;
-      const n = parseInt(s, 10);
-      return isNaN(n) ? 0 : n;
-    };
-    const normalised = data.map(q => ({
+    // Normalise Supabase rows — NO answer field is ever produced here.
+    return data.map(q => ({
       id:         q.id,
-      exam:       String(q.exam || q.exam_type || 'jee').toLowerCase().replace('-',''),
+      exam:       String(q.exam || q.exam_type || 'jee').toLowerCase().replace(/-/g, ''),
       subject:    String(q.subject || 'physics').toLowerCase(),
       difficulty: String(q.difficulty || 'medium').toLowerCase(),
       text:       q.text || q.question || q.question_text || '',
       options:    Array.isArray(q.options)
                     ? q.options
-                    : [q.option_a ?? q.a ?? '', q.option_b ?? q.b ?? '', q.option_c ?? q.c ?? '', q.option_d ?? q.d ?? ''],
-      answer:     _ansToIdx(q.answer ?? q.correct_option ?? q.correct),
-      explanation: q.explanation || q.solution || '',
+                    : [q.option_a ?? '', q.option_b ?? '', q.option_c ?? '', q.option_d ?? ''],
       year:       q.year,
-      source:     q.source,
       chapter:    q.chapter || 'General',
       standard:   q.standard || 'mixed',
       image_svg:  q.image_svg  || null,
       image_url:  q.image_url  || null,
-    })).filter(q => q.text && q.options.length === 4 && q.options.some(o => o && o.trim()));
-
-    // Merge: Supabase questions + PYQ (avoid duplicates by id)
-    const supabaseIds = new Set(normalised.map(q => q.id));
-    const uniquePyq = pyq.filter(q => !supabaseIds.has(q.id));
-    return [...normalised, ...uniquePyq];
-  } catch { return [...DEMO_QUESTIONS, ...pyq]; }
+      marks:          typeof q.marks === 'number' ? q.marks : 4,
+      negative_marks: typeof q.negative_marks === 'number' ? q.negative_marks : 0,
+    })).filter(q => q.text && q.options.length === 4 && q.options.some(o => o && String(o).trim()));
+  } catch { return []; }
 }
 
 async function fetchUserTests() {
@@ -1261,147 +1363,6 @@ window.updateTimerDisplay = function(secs) {
   const el = document.getElementById('testTimer');
   if (el) el.classList.toggle('warning', secs <= 300);
 };
-const MHT_CET_QUESTIONS = [
-  { id: 'mht_1', exam: 'mhtcet', subject: 'physics', difficulty: 'easy', text: "Two luminous points sources separated by a certain distance are at 10 km from an observer. If the aperture of his eye is 2.5 x 10-3 m and the wavelength of light used is 500 nm the distance of separation between the point sources just seen to be resolved is", options: ['12.2 m', '24.2 m', '2.44 m', '1.22 m'], answer: 2, year: 2025 },
-  { id: 'mht_2', exam: 'mhtcet', subject: 'physics', difficulty: 'easy', text: "A door 1.6 m wide requires a force of N to be applied at the free end to open or close it. The force that is required at a point 0.4 m distance from the hinges for opening or closing the door is", options: ['1.2 N', '3.6 N', '2.4 N', '4 N'], answer: 3, year: 2025 },
-  { id: 'mht_3', exam: 'mhtcet', subject: 'physics', difficulty: 'easy', text: "0.1 m3 of water at 80o C. The final temperature of the mixture is", options: ['65oC', '70oC', '60oC', '75oC'], answer: 0, year: 2025 },
-  { id: 'mht_4', exam: 'mhtcet', subject: 'physics', difficulty: 'easy', text: "The spectral series of the hydrogen atom that lies in the visible region of the electromagnetic spectrum", options: ['Paschen', 'Balmer', 'Lyman', 'Brackett'], answer: 1, year: 2025 },
-  { id: 'mht_6', exam: 'mhtcet', subject: 'physics', difficulty: 'easy', text: "The amount of heat energy radiated by a metal at temperature T is E. When the temperature is increased to 3T, energy radiated is", options: ['8 1E', '9 E', '3 E', '27 E'], answer: 0, year: 2025 },
-  { id: 'mht_7', exam: 'mhtcet', subject: 'physics', difficulty: 'easy', text: "A man, of mass 60 kg, is riding in a lift. The weights of the man, when the lift is accelerating upwards and down wards at 2m/s2 are respectively (Taking g=2m/s2)", options: ['720 N and 480 N', '480 N and 720 N', '600 N and 800 N', 'None of these'], answer: 0, year: 2025 },
-  { id: 'mht_8', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "Schottky defect in a crystal is observed when ,", options: ['Unequal number of cations and anions are missing from the lattice', 'Equal number of cations and anions are missing from the lattice', 'An ion leaves its normal site and occupies an interstitial site', 'No ion is missing from its lattice site'], answer: 1, year: 2025 },
-  { id: 'mht_9', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "The simplest way to check whether a system is colloidal is by", options: ['Electrodialysis', 'Finding out particle size', 'Tyndall effect', 'Brownian movement'], answer: 2, year: 2025 },
-  { id: 'mht_10', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "An example for a strong electrolyte is", options: ['Urea', 'Ammonium hydroxide', 'Sugar', 'Sodium acetate'], answer: 3, year: 2025 },
-  { id: 'mht_11', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "An example of a salt that will not hydrolyse is", options: ['CH3COONH4', 'CH3COOK', 'NH4CI', 'KCI'], answer: 3, year: 2025 },
-  { id: 'mht_12', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "C14 is", options: ['A natural non – radioactive isotope', 'An artificial non – radioactive isotope', 'An artificial radioactive isotope', 'A natural radioactive isotope'], answer: 3, year: 2025 },
-  { id: 'mht_13', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "A cuprous ore among the following is", options: ['Cuprite', 'Malachite', 'Chalcopyrites', 'Azurite'], answer: 0, year: 2025 },
-  { id: 'mht_14', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "Smallest among these species is", options: ['Lithium', 'Lithium ion', 'Hydrogen', 'Helium'], answer: 2, year: 2025 },
-  { id: 'mht_15', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "Sodium chloride is an ionic compound where as hydrogen chloride gas is mainly convalent because", options: ['Electronegativity difference in the case of hydrogen in less than 2.1', 'Hydrogen chloride is a gas', 'Hydrogen is a non metal', 'Sodium is reactive'], answer: 0, year: 2025 },
-  { id: 'mht_16', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "Convalent compounds have low melting point because", options: ['Convalent molecules are held by weak van der waal’s force of attraction', 'Convalent bond is less exothermic', 'Convalent bond is weaker than ionic bond', 'Convalent molecules have definite shape'], answer: 0, year: 2025 },
-  { id: 'mht_17', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "Which of the following is an alloy of aluminium?", options: ['magnalium', 'duralumin', 'brass', 'both ‘a’ and ‘b’'], answer: 3, year: 2025 },
-  { id: 'mht_18', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "3 meters away ?", options: ['0.8 m', '1.2m', '2.2m', '0.93 m'], answer: 0, year: 2025 },
-  { id: 'mht_19', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "A condensation polymer among the following polymers is", options: ['Teflon', 'Polysterene', 'PVC', 'Decron'], answer: 3, year: 2025 },
-  { id: 'mht_20', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "A compound that undergoes bromination easily is", options: ['Toluene', 'Benzoic acid', 'Phenol', 'Benzene'], answer: 2, year: 2025 },
-  { id: 'mht_21', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "A sugar that is not a disaccharide among the following is", options: ['Galactose', 'Lactose', 'Maltose', 'Sucrose'], answer: 0, year: 2025 },
-  { id: 'mht_22', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "Drying soil invariably contains", options: ['Butyric acid', 'Stearic acid', 'Lauric acid', 'Linoleic acid'], answer: 3, year: 2025 },
-  { id: 'mht_23', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "Hetrocyclic amino acid among these compound is", options: ['Lysine', 'Tyrosine', 'Proline', 'Serine'], answer: 2, year: 2025 },
-  { id: 'mht_24', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "Aluminium oxide is not reduced by chemical reactions since", options: ['Reducing agent contaminate', 'The process pollute the environment', 'Aluminium oxide is highly stable', 'Aluminium oxide is reactive'], answer: 2, year: 2025 },
-  { id: 'mht_25', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "Iron loses magnetic property at", options: ['Melting point', '1000 K', 'Curie point', 'Boiling point'], answer: 2, year: 2025 },
-  { id: 'mht_26', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "An example for a double salt is", options: ['Potassium ferricyanide', 'Cobalt hexamine chloride', 'Cuprous sulphate', 'Mohr’s salt'], answer: 3, year: 2025 },
-  { id: 'mht_27', exam: 'mhtcet', subject: 'chemistry', difficulty: 'easy', text: "The set of compounds in which the reactivity of halogen atom in the ascending order is", options: ['Viny1 chloride, chloroethane, chlorobenzene', 'Viny1 chloride, chlorobenzene, chloroethane', 'chloroethane, chlorobenzene, Viny1 chloride', 'chlorobenzene, Viny1 chloride, chloroethane'], answer: 3, year: 2025 },
-  { id: 'mht_28', exam: 'mhtcet', subject: 'physics', difficulty: 'easy', text: "Which one of the following pairs does not have the same dimension ?", options: ['Potential energy and Kinetic energy', 'Density and specific gravity', 'Focal length and height', 'Gravitational force and frictional force'], answer: 1, year: 2025 },
-  { id: 'mht_29', exam: 'mhtcet', subject: 'physics', difficulty: 'easy', text: "Which one of the following physical quantity has the same unit as that of pressure ?", options: ['Angular momentum', 'Stress', 'Strain', 'Work'], answer: 1, year: 2025 },
-  { id: 'mht_30', exam: 'mhtcet', subject: 'physics', difficulty: 'easy', text: "The symbol of SI unit of inductance is H. It stands for", options: ['Holm', 'Halogen', 'Henry', 'Hertz'], answer: 2, year: 2025 },
-  { id: 'mht_31', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "A ball is dropped from a window 24 meters high. How long will it take to reach the ground ?", options: ['2.2 s', '1.2 s', '4.5 s', '0.2s'], answer: 0, year: 2025 },
-  { id: 'mht_34', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Two balls A and B of same masses are thrown from the top of the building. A, thrown upward with velocity V and B, thrown downward with velocity V, then–", options: ['Velocity of A is more than B at the ground', 'Velocity of B is more than A at the ground', 'Both A and B strike the ground with same velocity', 'None of these'], answer: 2, year: 2025 },
-  { id: 'mht_35', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "A man getting down a running bus, falls forward because.", options: ['due to inertia of rest, road is left behind and man reaches forward', 'due to inertia of motion upper part of body continues to be in motion in forward direction while feet come to rest as soon as they touch the', 'he leans forward as a matter of habit', 'of the combined effect of all the three factors started in (a), (b) and (c)'], answer: 1, year: 2025 },
-  { id: 'mht_36', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "A force 10N acts on a body of mass 20 kg for 10 sec. Change in its momentum is.", options: ['5 kg m/s', '100 kg m/s', '200 kg m/s', '1000 kg m/s'], answer: 1, year: 2025 },
-  { id: 'mht_37', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Swimming is possible on account of", options: ['first law of motion', 'second law of motion', 'third law of motion', 'newton\'s law of gravitation'], answer: 2, year: 2025 },
-  { id: 'mht_38', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "What is the sign of the work done by gravity on an man standing on a platform ?", options: ['Zero', 'Positive', 'Negative', 'Depends on the particular situation'], answer: 0, year: 2025 },
-  { id: 'mht_40', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "A shell following a parabolic path explodes somewhere in its flight. The centre of mass of fragements will continue to move in", options: ['vertical direction', 'any direction', 'horizontal direction', 'same parabolic path'], answer: 3, year: 2025 },
-  { id: 'mht_41', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Two particles of mass m1 and m2 (m1 > m2) attract each other with a force inversely proportional to the square of the distance between them. If the particles are initially held at rest and then released, the centre of mass will", options: ['move towards m1', 'move towards m2', 'remains at rest', 'None of these'], answer: 2, year: 2025 },
-  { id: 'mht_42', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "In which case application of angular velocity is useful ?", options: ['When a body is rotating', 'when a velocity of body is in a straight line', 'When acceleration of body is in a straight line', 'None of these'], answer: 0, year: 2025 },
-  { id: 'mht_43', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "S.I. Unit of G is", options: ['m s–2', 'N m² kg–2', 'No unit', 'None of these'], answer: 1, year: 2025 },
-  { id: 'mht_44', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Two particles are placed at some distance, If the mass of each of the two particles is doubled, keeping the distance between them unchanged, the value of gravitational force between them will be", options: ['', '4 times', '', 'unchanged'], answer: 1, year: 2025 },
-  { id: 'mht_45', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "The weight of an object at the centre of the earth of radius R is", options: ['zero', 'infinite', 'R times the weight at the surface of the earth', '1/R² times the weight at surface of the earth'], answer: 0, year: 2025 },
-  { id: 'mht_46', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Value of G is", options: ['9.8 m s–2', '6.673 × 10–11 N m² kg–2', '6.673 N', '9.8 N'], answer: 1, year: 2025 },
-  { id: 'mht_47', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Young's modulus is defined as", options: ['the ratio of linear strain to the normal stress', 'the ratio of normal stress to strain', 'product of linear strain and normal stress', 'square of the ratio of normal stress to linear strain'], answer: 1, year: 2025 },
-  { id: 'mht_48', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Which of the following substance has the highest elasticity ?", options: ['Steel', 'Copper', 'Rubber', 'Sponge'], answer: 0, year: 2025 },
-  { id: 'mht_49', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Shearing strain is expressed by", options: ['angle of shear', 'angle of twist', 'decrease in volume', 'increase in volume'], answer: 0, year: 2025 },
-  { id: 'mht_50', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Human ears can sense sound waves travelling in air having wavelength of", options: ['10–3 m', '10–2 m', '1 m', '10² m'], answer: 2, year: 2025 },
-  { id: 'mht_51', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Which of the following statements is wrong ?", options: ['Sound travels in straight line', 'Sound is form of energy', 'Sound travels in the forms of waves', 'Sound travels faster in vacuum than in air'], answer: 3, year: 2025 },
-  { id: 'mht_52', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Voice of a friend is recognised by its", options: ['pitch', 'quality', 'intensity', 'velocity'], answer: 1, year: 2025 },
-  { id: 'mht_53', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Heat is transmitted from higher to lower temperature through actual mass motion of the molecules in", options: ['conduction', 'convection', 'radiation', 'None of these'], answer: 1, year: 2025 },
-  { id: 'mht_54', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "The spectrum from a black body radiation is", options: ['line spectrum', 'band spectrum', 'continuous spectrum', 'line and band spectrum'], answer: 2, year: 2025 },
-  { id: 'mht_55', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "A polished metal plate with a rough black spot on it is heated to abated 1400 K and quickly taken balck taken into a dark room. Which one of the following statements will be true ?", options: ['The spot will appear brighter than the plate', 'The spot will appear darker than the plate', 'The spot and plate will appear equally bright', 'The spot and the plate will not be visible in the dark'], answer: 0, year: 2025 },
-  { id: 'mht_56', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "The wavelength of radiation emitted by a body depends upon", options: ['the natur of its surface', 'the area of its surface', 'the temperature of its surface', 'All of the above'], answer: 3, year: 2025 },
-  { id: 'mht_57', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "The fastest mode of transfer of heat is", options: ['conduction', 'convection', 'radiation', 'None of these'], answer: 2, year: 2025 },
-  { id: 'mht_58', exam: 'mhtcet', subject: 'chemistry', difficulty: 'medium', text: "The reciprocal of the combined resistance of any number of resistances connected in parallel is equal to", options: ['The sum of reciprocals of individiual resistances', 'reciprocal of the product of individiual resistances', 'reciprocal of sum of all the resistances', 'None of the above'], answer: 0, year: 2025 },
-  { id: 'mht_59', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "A current of 1 A is drawn by a filament of an electric bulb. Number of electrons passing through a cross–section of the filament in 16 seconds woulbd be roughly", options: ['1020', '1016', '1018', '1023'], answer: 0, year: 2025 },
-  { id: 'mht_60', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Which of the following represents voltage ?", options: ['', 'Work done × Charge', '', 'Work done × Charge × Time'], answer: 0, year: 2025 },
-  { id: 'mht_61', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "If the current I through a resistor is increased by 100% (assume that temperature remains unchanged, the increase in power dissipated will be", options: ['100%', '200%', '300%', '400%'], answer: 2, year: 2025 },
-  { id: 'mht_62', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "When two or more resistors are connected in parallel,", options: ['The current passing through each resistor is same', 'The potential difference across each resistor is same', 'Both of the above', 'None of the above'], answer: 1, year: 2025 },
-  { id: 'mht_63', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "An object placed at 2F of a convex lens will produce an image", options: ['at 2F', 'same size', 'real and inverted', 'All of these'], answer: 2, year: 2025 },
-  { id: 'mht_64', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "An object placed between F and 2F of a convex lens will produce an image", options: ['beyond 2F', 'enlarged', 'real and inverted', 'All of these'], answer: 2, year: 2025 },
-  { id: 'mht_65', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "A swimming pool looks shallower than it really is, when seen by a person standing outside near it, because of the phenomenon of", options: ['refraction of light', 'reflection of light', 'dispersion of light', 'None of these'], answer: 0, year: 2025 },
-  { id: 'mht_66', exam: 'mhtcet', subject: 'chemistry', difficulty: 'medium', text: "In the extraction of some metals from their ores, coke can be used as a/an..............", options: ['oxidizing agent', 'reducing agent', 'catalyst', 'flux'], answer: 1, year: 2025 },
-  { id: 'mht_67', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "................................ are used to produce energy in OTEC .", options: ['Tidal energy', 'Temperature difference between the different layers of water in ocean', 'Ocean waves', 'None of the above'], answer: 1, year: 2025 },
-  { id: 'mht_68', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "A photon will have less energy, if its", options: ['amplitude is higher', 'frequency is higher', 'wavelength is longer', 'wavelength is shorter'], answer: 2, year: 2025 },
-  { id: 'mht_69', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "A photoelectric cell converts", options: ['light energy into heat energy', 'light energy to sound energy', 'light energy into electric energy', 'electric energy into light energy'], answer: 2, year: 2025 },
-  { id: 'mht_70', exam: 'mhtcet', subject: 'physics', difficulty: 'medium', text: "Light of a particular frequency v is incident on a metal surface. When the intensity of incident radiation is increased, the photoelectric current", options: ['decreases', 'increases', 'remain unchanged', 'sometimes increases and sometimes decreases'], answer: 1, year: 2025 },
-  { id: 'mht_71', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Which one of the following substances is used in the manufacture of safety matches ?", options: ['Red phosphorus', 'White phosphorus', 'Phosphorus trioxide (P2O3)', 'Black phosphorus'], answer: 0, year: 2025 },
-  { id: 'mht_72', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Which one of the following polymeric materials is used for making bullet proof jacket ?", options: ['Nylon –6, 6', 'Rayon', 'Kevlar', 'Dacron'], answer: 2, year: 2025 },
-  { id: 'mht_73', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Non–reacting gases have a tendency to mix with each other. This phenomenon is known as.", options: ['chemical reaction', 'diffusion', 'effusion', 'explosion'], answer: 2, year: 2025 },
-  { id: 'mht_74', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Alkali halids do not show Frenkel defect because", options: ['cations and anions have almost equal size', 'there is a large difference in size of cations and anions', 'cations and anions have low coordination number', 'anions cannot be accommodated in voids'], answer: 0, year: 2025 },
-  { id: 'mht_75', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "In NaCl structure", options: ['all octahedral and tetrahedral sites are occupied', 'only octahedral sites are occupied', 'only tetrahedral sites are occupied', 'neither octahedral nor tetrahedral sites are occupied'], answer: 1, year: 2025 },
-  { id: 'mht_76', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "A mixture of ZnCl2 and PbCl2 can be separated by.", options: ['distillation', 'crystallization', 'sublimation', 'adding acetic acid'], answer: 1, year: 2025 },
-  { id: 'mht_77', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Age of fossil may be found out by determining the ratio of two isotopes of carbon. The isotopes are.", options: ['C–12 and C–13', 'C–13 and C–14', 'C–12 and C–14', 'C–12 and carbon black'], answer: 2, year: 2025 },
-  { id: 'mht_78', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Which of the following radioactive substances enters/ enter the human body through food chain and causes/cause many physiological disorders ?", options: ['Strontium–90', 'Iodine – 131', 'Cesium – 137', 'All of the above'], answer: 3, year: 2025 },
-  { id: 'mht_79', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Rutherford's alpha–particle scattering experiment was responsible for the discovery of.", options: ['Electron', 'Proton', 'Nucleus', 'Helium'], answer: 2, year: 2025 },
-  { id: 'mht_80', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "The species that has the same number of electrons as", options: ['', '', '', ''], answer: 2, year: 2025 },
-  { id: 'mht_81', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Who developed long form of the periodic table ?", options: ['Lothar Meyer', 'Neils Bohr', 'Mendeleev', 'Moseley'], answer: 1, year: 2025 },
-  { id: 'mht_82', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Which of the scientists given below discovered that periodic table should be based on the atomic number ?", options: ['Mendeleev', 'Newlands', 'Moseley', 'Lothar Meyer'], answer: 2, year: 2025 },
-  { id: 'mht_83', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Which of the following is non–metallic ?", options: ['B', 'Be', 'Mg', 'Al'], answer: 0, year: 2025 },
-  { id: 'mht_84', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "The only non–metal which is liquid at ordinary temperature is", options: ['Hg', 'Br2', 'NH3', 'None of these'], answer: 1, year: 2025 },
-  { id: 'mht_85', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Which one of the following statements is correct ?", options: ['The oxidation number for hydrogen is always zero', 'The oxidation number for hydrogen is always +1', 'The oxidation number for hydrogen is always –1', 'Hydrogen can have more than one oxidation number'], answer: 3, year: 2025 },
-  { id: 'mht_86', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Which one of the following elements is least reactive with water ?", options: ['Lithium', 'Sodium', 'Potassium', 'Cesium'], answer: 0, year: 2025 },
-  { id: 'mht_87', exam: 'mhtcet', subject: 'physics', difficulty: 'hard', text: "The ionization energy of hydrogen atom in the ground state is", options: ['13.6 MeV', '13.6 eV', '13.6 Joule', 'Zero'], answer: 1, year: 2025 },
-  { id: 'mht_88', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Which one of the following gases is placed second in respect of abundance in the Earth's atmosphere ?", options: ['Oxygen', 'Hydrogen', 'Nitrogen', 'Carbon dioxide'], answer: 0, year: 2025 },
-  { id: 'mht_89', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Stung by hairs of nettle leaves causes burning pain. This is due to the injection of", options: ['Acetic acid', 'Methanoic acid', 'Sulphuric acid', 'Hydrochloric acid'], answer: 1, year: 2025 },
-  { id: 'mht_90', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "The chemical formula of baking soda is", options: ['Na2CO3', 'NaHCO3', 'CaCO3', 'NaOH'], answer: 1, year: 2025 },
-  { id: 'mht_91', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Nerve agents are a class of", options: ['phosphorus-containing organic chemicals', 'sulphur-containing organic chemicals', 'osmium-containing organic compounds', 'radon-containing organic compounds'], answer: 0, year: 2025 },
-  { id: 'mht_92', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "The principal use of hydrofluoric acid is", options: ['in etching glass', 'as a bleaching agent', 'as an extremely strong oxidizing agent', 'in the preparation of strong organic fluorine compounds'], answer: 0, year: 2025 },
-  { id: 'mht_93', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Which of the following metals burn with a white dazzing light, with oxygen ?", options: ['Sodium', 'Potassium', 'Magnesium', 'Aluminium'], answer: 2, year: 2025 },
-  { id: 'mht_94', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Aluminium is obtained by the electrolysis of pure Al2O3 dissolved in", options: ['Bauxite', 'Cryolite', 'Feldspar', 'Alumina'], answer: 1, year: 2025 },
-  { id: 'mht_95', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Zinc is", options: ['non – metalleable', 'Brittle', 'ductile', '(a) and (b)'], answer: 3, year: 2025 },
-  { id: 'mht_96', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "The only non–metal that has luster is", options: ['Sulphur', 'Phosphorus', 'Silicon', 'Iodine'], answer: 3, year: 2025 },
-  { id: 'mht_97', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "A functional isomer of 1- butyne is", options: ['2-butyne', '1-butene', '2-butene', '1, 3 - butadience'], answer: 3, year: 2025 },
-  { id: 'mht_98', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "The compound C4H10O can show", options: ['metamerism', 'functional isomerism', 'position isomerism', 'All of these'], answer: 3, year: 2025 },
-  { id: 'mht_99', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Which pair of isomerism is not possible together ?", options: ['Ring-chain and functional', 'Geometrical and optical', 'Metamerism and functional', 'Metamerism and chain'], answer: 2, year: 2025 },
-  { id: 'mht_100', exam: 'mhtcet', subject: 'chemistry', difficulty: 'hard', text: "Purification of petroleum is carried out by", options: ['fractional distillation', 'steam distillation', 'vacuum distillation', 'simple distillation'], answer: 0, year: 2025 },
-];
-
-// ─── PYQ Integration ──────────────────────────────────────────────────────────
-// Merge real MHT-CET PYQ questions into allQuestions pool when practice loads,
-// and use them in quickStart for mhtcet exam.
-
-// Override fetchQuestions to merge PYQ
-const _origFetchQuestions = window.fetchQuestions || fetchQuestions;
-window.fetchQuestions = async function() {
-  let base = await _origFetchQuestions();
-  // Merge MHT-CET PYQ — avoid duplicates by id
-  const existingIds = new Set(base.map(q => q.id));
-  const newOnes = MHT_CET_QUESTIONS.filter(q => !existingIds.has(q.id));
-  return [...base, ...newOnes];
-};
-
-// Override quickStart to use PYQ for mhtcet
-const _origQuickStart = window.quickStart || quickStart;
-window.quickStart = function(exam) {
-  // If allQuestions already has PYQ (from practice page load), use it
-  // Otherwise merge PYQ directly for the mock test
-  if (exam === 'mhtcet') {
-    const pool = allQuestions.length > 0
-      ? allQuestions.filter(q => q.exam === 'mhtcet')
-      : MHT_CET_QUESTIONS;
-    if (pool.length === 0) {
-      
-      return;
-    }
-    const selected = shuffleArray(pool).slice(0, Math.min(50, pool.length));
-    startTest(selected, 'mhtcet');
-  } else {
-    _origQuickStart(exam);
-  }
-};
-
-// Show PYQ stats in the exam card subtitle
-document.addEventListener('supabase:ready', () => {
-  // Update the exam card descriptions with live counts
-  setTimeout(() => {
-    const mhtInfo = document.querySelector('.exam-card:nth-child(2) .exam-info p');
-    if (mhtInfo) mhtInfo.textContent = 'PCM + Chemistry · ' + MHT_CET_QUESTIONS.length + ' PYQ questions';
-  }, 500);
-});
 
 // ═══════════════════════════════════════════════════════════════════
 //  REAL CBT ENGINE — appended, zero changes to original code above
@@ -1411,10 +1372,12 @@ document.addEventListener('supabase:ready', () => {
 const EXAM_CONFIG = {
   jee: {
     name: 'JEE Main', label: 'JEE Main 2025', duration: 180,
+    // All questions in the bank are MCQ (4 options, server-side letter key), so
+    // every section is MCQ — no client-side integer answers to mis-grade.
     sections: [
-      { name: 'Physics',     subject: 'physics',     mcq: 20, integer: 5, mcqMarks: [4,-1], intMarks: [4,0] },
-      { name: 'Chemistry',   subject: 'chemistry',   mcq: 20, integer: 5, mcqMarks: [4,-1], intMarks: [4,0] },
-      { name: 'Mathematics', subject: 'mathematics', mcq: 20, integer: 5, mcqMarks: [4,-1], intMarks: [4,0] },
+      { name: 'Physics',     subject: 'physics',     mcq: 25, integer: 0, mcqMarks: [4,-1], intMarks: [4,0] },
+      { name: 'Chemistry',   subject: 'chemistry',   mcq: 25, integer: 0, mcqMarks: [4,-1], intMarks: [4,0] },
+      { name: 'Mathematics', subject: 'mathematics', mcq: 25, integer: 0, mcqMarks: [4,-1], intMarks: [4,0] },
     ]
   },
   mhtcet: {
@@ -1459,75 +1422,61 @@ let cbtQTypes = [];          // per-question: 'mcq' or 'integer'
 
 // ─── Override quickStart ──────────────────────────────────────────────────────
 const _cbt_origQuickStart = window.quickStart;
-window.quickStart = function(exam) {
+window.quickStart = async function(exam) {
   const cfg = EXAM_CONFIG[exam] || EXAM_CONFIG.generic;
-  const pool = (allQuestions.length > 0 ? allQuestions : DEMO_QUESTIONS);
 
-  // Build per-section question arrays
+  // Build per-section question arrays. Questions come from the get_test_questions
+  // RPC — they are answerless (no correct_option), so nothing is leaked.
   const sectionsData = [];
   let allSelected = [];
 
-  cfg.sections.forEach(sec => {
-    // Match subject (case-insensitive). Prefer this exam's own questions,
-    // then fall back to ANY exam's questions of the same subject (CET often
-    // has too few of its own — JEE-level questions of the same subject are
-    // valid practice), and only then to demos.
-    const wantSubj = (sec.subject || '').toLowerCase();
-    const sameSubject = q => (q.subject || '').toLowerCase() === wantSubj;
+  for (const sec of cfg.sections) {
+    const needed = sec.mcq; // integer is 0 across all configs now
+    // Server-side fetch of answerless questions for this section.
+    let secPool = await rpcGetTestQuestions({
+      exam,
+      subject: sec.subject || undefined,
+      count: needed,
+    });
 
-    let secPool = pool.filter(q => sameSubject(q) && (q.exam === exam));
-    if (secPool.length < (sec.mcq + sec.integer)) {
-      // top up from same subject, any exam (deduped)
+    // Top up from the already-loaded (answerless) practice pool if the server
+    // returned too few for this subject.
+    if (secPool.length < needed && allQuestions.length) {
       const have = new Set(secPool.map(q => q.id));
-      const extra = pool.filter(q => sameSubject(q) && !have.has(q.id));
-      secPool = secPool.concat(extra);
-    }
-    if (!sec.subject) {
-      secPool = pool.filter(q => q.exam === exam || exam === 'generic');
+      const wantSubj = (sec.subject || '').toLowerCase();
+      const extra = allQuestions.filter(q =>
+        (!sec.subject || (q.subject || '').toLowerCase() === wantSubj) && !have.has(q.id)
+      );
+      secPool = secPool.concat(shuffleArray(extra));
     }
 
-    const shuffled = shuffleArray(secPool);
-    const needed = sec.mcq + sec.integer;
-    const taken = shuffled.slice(0, Math.min(needed, shuffled.length));
-
-    // Pad with demo if not enough
-    const extra = needed - taken.length;
-    if (extra > 0) {
-      const demos = shuffleArray(DEMO_QUESTIONS.filter(q =>
-        !sec.subject || q.subject === sec.subject
-      )).slice(0, extra);
-      taken.push(...demos);
-    }
+    const taken = secPool.slice(0, Math.min(needed, secPool.length));
+    if (taken.length === 0) continue;
 
     const startIdx = allSelected.length;
-    // Mark integer-type questions (last `integer` in the section)
-    taken.forEach((q, i) => {
-      const isInt = i >= sec.mcq;
-      allSelected.push({ ...q, _isInteger: isInt });
-    });
+    taken.forEach(q => allSelected.push({ ...q, _isInteger: false }));
 
     sectionsData.push({
       name: sec.name,
       subject: sec.subject,
       startIdx,
       endIdx: allSelected.length - 1,
-      mcq: sec.mcq,
-      integer: sec.integer,
+      // Size the section to the ACTUAL questions loaded so Total Marks is
+      // numQuestions × perQuestionMax (never a hardcoded nominal total).
+      mcq: taken.length,
+      integer: 0,
       mcqMarks: sec.mcqMarks,
       intMarks: sec.intMarks,
       count: taken.length,
     });
-  });
-
-  if (allSelected.length === 0) {
-    
-    return;
   }
+
+  if (allSelected.length === 0) return;
 
   cbtSections = sectionsData;
   cbtCurrentSection = 0;
   cbtVisited = new Array(allSelected.length).fill(false);
-  cbtQTypes = allSelected.map(q => q._isInteger ? 'integer' : 'mcq');
+  cbtQTypes = allSelected.map(() => 'mcq');
   mhtTimerGroup = 0; // reset MHT-CET group timer
 
   _cbt_startTest(allSelected, exam, cfg);
@@ -1609,6 +1558,13 @@ function _cbt_startTest(questions, exam, cfg) {
 
 function _cbt_beginActiveTest(cfg, name) {
   _show('activeTest');
+
+  // Fresh test: clear any review-mode state and re-show all controls a prior
+  // review may have hidden (incl. prevBtn, which _cbt_applyReviewLock skips).
+  testState.reviewMode = false;
+  ['prevBtn', 'nextBtn', 'reviewBtn', 'clearBtn', 'submitTestBtn', 'submitTestBtnInline']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = ''; });
+  const _isw = document.querySelector('.inline-submit'); if (_isw) _isw.style.display = '';
 
   // Candidate info
   const initials = name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
@@ -1808,7 +1764,7 @@ function _cbt_renderQuestion() {
     intInput.value = answers[currentIdx] !== null ? answers[currentIdx] : '';
     intInput.disabled = review;
     if (review) {
-      const correctVal = q.answer;
+      const correctVal = _idxToLetter(q._correctIdx); // server-verified key
       const userVal = answers[currentIdx];
       optsCont.innerHTML = '<div style="margin-top:8px;font-size:14px;">' +
         (userVal == correctVal
@@ -1824,7 +1780,7 @@ function _cbt_renderQuestion() {
       let click = 'onclick="cbtSelectOption(' + i + ')"';
       if (review) {
         click = 'disabled style="cursor:default"';   // lock in review
-        if (i === q.answer) cls += ' opt-correct';
+        if (i === q._correctIdx) cls += ' opt-correct';
         else if (answers[currentIdx] === i) cls += ' opt-wrong';
       } else if (answers[currentIdx] === i) {
         cls += ' selected';
@@ -1955,15 +1911,27 @@ async function _cbt_submitTest() {
   _exitFS();
 
   const { questions, answers } = testState;
+
+  // Server-side grading. Send every question id with the selected letter (null
+  // when skipped); grade_test returns is_correct + the correct option, so the
+  // answer key never lived on the client and we can reveal answers in review.
+  const payload = questions.map((q, i) => ({
+    id: q.id,
+    selected: answers[i] === null ? null : _idxToLetter(answers[i]),
+  }));
+  const graded = await rpcGradeTest(payload);
+  testState.graded = graded;
+
   let totalMarks = 0, correct = 0, incorrect = 0, skipped = 0;
   const sectionResults = cbtSections.map(sec => {
     let sm = 0, sc = 0, si = 0, ss = 0;
     for (let i = sec.startIdx; i <= sec.endIdx; i++) {
       const ans = answers[i];
-      const isInt = cbtQTypes[i] === 'integer';
-      const marks = isInt ? sec.intMarks : sec.mcqMarks;
+      const g = graded.get(questions[i].id);
+      questions[i]._correctIdx = g ? g.correctIdx : -1; // for review mode
+      const marks = sec.mcqMarks; // all questions are MCQ
       if (ans === null) { ss++; }
-      else if (ans === questions[i].answer) { sm += marks[0]; sc++; correct++; }
+      else if (g && g.is_correct) { sm += marks[0]; sc++; correct++; }
       else { sm += marks[1]; si++; incorrect++; }
     }
     skipped += ss;
@@ -2226,26 +2194,26 @@ async function startPaperCBT(paperId, exam, title) {
     try {
       // STABLE order so a paper's questions never reshuffle on reload.
       // JEE rows have no question_number → NULLS LAST, then tiebreak by id.
+      // SECURITY: select explicit columns only — never correct_option.
       const { data } = await db.from('questions')
-        .select('*').eq('paper_id', paperId).eq('status', 'published')
+        .select('id,subject,difficulty,question_text,text,option_a,option_b,option_c,option_d,chapter,image_svg,image_url,marks,negative_marks,question_number')
+        .eq('paper_id', paperId).eq('status', 'published')
         .order('question_number', { ascending: true, nullsFirst: false })
         .order('id', { ascending: true });
       if (data && data.length) {
-        const _ansToIdx = (v) => {
-          const s = String(v ?? '').trim().toUpperCase();
-          return s === 'A' ? 0 : s === 'B' ? 1 : s === 'C' ? 2 : s === 'D' ? 3 : 0;
-        };
         paperQs = data.map(q => ({
           id: q.id,
           exam: mapped,
           subject: String(q.subject || 'physics').toLowerCase(),
           difficulty: (q.difficulty || 'medium').toLowerCase(),
-          text: q.question_text || '',
+          text: q.question_text || q.text || '',
           options: [q.option_a, q.option_b, q.option_c, q.option_d],
-          answer: _ansToIdx(q.correct_option),
+          // No `answer` field — grading is done server-side via grade_test.
           chapter: q.chapter || 'General',
           image_svg: q.image_svg || null,
           image_url: q.image_url || null,
+          marks:          typeof q.marks === 'number' ? q.marks : 4,
+          negative_marks: typeof q.negative_marks === 'number' ? q.negative_marks : 0,
         })).filter(q => q.text && q.options.every(o => o && String(o).trim()));
       }
     } catch (e) { console.warn('paper load failed', e); }
