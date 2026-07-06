@@ -463,7 +463,9 @@ async function loadDashboard() {
 
   document.getElementById('statTests').textContent = numTests;
   document.getElementById('statTestsSub').textContent = numTests === 1 ? '1 test' : `${numTests} tests`;
-  document.getElementById('statAccuracy').textContent = answered > 0 ? `${avgAcc}%` : '—';
+  // Accuracy shows a real number always — 0% when there are no answered questions
+  // (never a placeholder), so it can't contradict the other cards.
+  document.getElementById('statAccuracy').textContent = `${avgAcc}%`;
   document.getElementById('statAccuracySub').textContent = answered > 0 ? 'across all tests' : 'No tests yet';
   document.getElementById('statQuestions').textContent = answered || 0;
   document.getElementById('statLastActive').textContent = lastDate;
